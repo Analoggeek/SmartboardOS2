@@ -46,7 +46,7 @@ function bootWorker({ cacheFailure = false } = {}) {
 test('precache covers every local renderer file and PWA shortcut offline', async () => {
   const worker = bootWorker();
   await worker.event('install');
-  const expected = ['./', 'index.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)];
+  const expected = ['./', 'index.html', 'install.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)];
   assert.deepEqual(worker.cached.sort(), expected.map((file) => new URL(file, scope).href).sort());
   const manifest = JSON.parse(readFileSync('manifest.webmanifest', 'utf8'));
   assert.deepEqual(manifest.shortcuts.map(({ url }) => url), ['./?app=whiteboard', './?app=pdf', './?app=class']);
@@ -68,7 +68,7 @@ test('failed precache does not activate an incomplete update', async () => {
 
 
 test('desktop/preview routes cover runtime assets without exposing project files', () => {
-  for (const file of ['index.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)]) {
+  for (const file of ['index.html', 'install.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)]) {
     assert.equal(renderer.rendererAsset(`/${file}`).file, file);
   }
   for (const route of ['/.git/config', '/package.json', '/desktop/main.cjs', '/js/../package.json', '/js/%2fmain.js']) {

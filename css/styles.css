@@ -1257,3 +1257,24 @@ html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="
 .pdf-annotation-panel[hidden], .pdf-toolbar[hidden], .pdf-wrap[hidden] { display: none; }
 .pdf-annotation-label, .update-status { font-size: 12px; color: var(--text-2); }
 .update-status:empty { display: none; }
+
+/* Offline classroom tools and installer landing page */
+.install-page { min-height: 100vh; height: auto; overflow: auto; background: var(--bg); }
+.install-content { width: min(830px, calc(100% - 36px)); margin: 56px auto; padding: clamp(18px, 5vw, 42px); border: 1px solid var(--border); border-radius: 24px; background: var(--surface); }
+.install-content h1 { font-size: clamp(30px, 6vw, 52px); margin-bottom: 8px; }
+.install-content p, .studio p, .map-studio p { color: var(--text-2); line-height: 1.55; }
+.install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; }
+.install-content a, .install-cta { text-decoration: none; }
+.install-cta { border-color: var(--accent); }
+.map-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.map-studio canvas { width: 100%; height: auto; border-radius: 12px; display: block; }
+.studio-camera-overlay { pointer-events: none; position: fixed; bottom: 96px; right: 24px; z-index: 185; width: min(26vw, 300px); }
+.studio-preview { overflow: hidden; border-radius: 10px; }
+.studio-preview video, .studio-preview canvas { width: 100%; height: auto; display: block; }
+.studio-camera-overlay[hidden], .studio-preview [hidden] { display: none; }
+.recording-indicator { position: fixed; z-index: 195; right: 18px; top: 58px; color: #fff; background: #ac303e; border: 1px solid #ffe1e3; border-radius: 16px; padding: 9px 14px; font-weight: 700; }
+/* Keep all apps reachable on mobile instead of squeezing nine icons into one row. */
+@media (max-width: 560px) {
+  .dock-item { flex: 0 0 40px; }
+  .dock { justify-content: flex-start; }
+}

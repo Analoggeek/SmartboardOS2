@@ -29,10 +29,11 @@ Find the `.exe` or `.dmg` under `dist/`. A local build does not publish to GitHu
 ## Release smoke test on each platform
 
 - Copy the installer to a clean Windows or macOS machine. Disconnect the machine from the internet before running setup, then launch from the installed shortcut or Applications.
+- Open Recording Studio, try its available capture sources (including a newly attached webcam only after opting in), stop each recording, and verify it plays from the dated lesson folder. Test the 4K limit only with capable hardware.
 - Draw and save on the whiteboard, open a local PDF, send its page to the board, and export a board PDF. Create a note, quit, and confirm that both the board and note return on relaunch.
 - From the installed app, test **Check for updates** against a newer public release and confirm it opens the right installer after verification.
 - Run a newer installer while disconnected and confirm the same data is still there and the new version appears in Settings.
 
 ## Optional web deployment
 
-The **Deploy SmartBoardOS web app** workflow publishes renderer changes to [GitHub Pages](https://analoggeek.github.io/SmartboardOS2/) when they land on `main`. For forks, enable Pages with **GitHub Actions** as the source. The web edition is still a static site; for another host, serve `index.html`, `css/`, `js/`, `assets/`, `vendor/`, `manifest.webmanifest`, and `sw.js` together over HTTPS (or localhost for testing). Bump the cache version in `sw.js` whenever publishing changed web assets. Existing web tabs keep their current version until closed; then the verified cache activates.
+The **Deploy SmartBoardOS web app** workflow publishes renderer changes to [GitHub Pages](https://analoggeek.github.io/SmartboardOS2/) when they land on `main`. For forks, enable Pages with **GitHub Actions** as the source. The web edition is still a static site; for another host, serve `index.html`, `install.html`, `css/`, `js/`, `assets/`, `vendor/`, `manifest.webmanifest`, and `sw.js` together over HTTPS (or localhost for testing). Bump the cache version in `sw.js` whenever publishing changed web assets. Existing web tabs keep their current version until closed; then the verified cache activates.

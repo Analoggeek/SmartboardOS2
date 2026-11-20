@@ -1,8 +1,17 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.1`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.2`;
 const CORE = [
   './',
   './index.html',
+  './install.html',
+  './js/install.js',
+  './js/archive.js',
+  './js/eraser.js',
+  './js/document-import.js',
+  './js/map-data.js',
+  './js/apps/maps.js',
+  './js/apps/recording.js',
+  './vendor/fflate/fflate.js',
   './manifest.webmanifest',
   './css/styles.css',
   './js/main.js',

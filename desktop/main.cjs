@@ -1,7 +1,8 @@
-/* Local-only Electron host. The renderer has no Node access; the preload exposes only two updater commands. */
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell } = require('electron');
+/* Local-only Electron host. The renderer has no Node access; the preload exposes restricted updater and library commands. */
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, net, protocol, session, shell } = require('electron');
 const { readFile } = require('node:fs/promises');
 const path = require('node:path');
+const { registerLibrary } = require('./library.cjs');
 const { registerUpdater } = require('./update.cjs');
 const { rendererAsset } = require('./assets.cjs');
 
@@ -64,12 +65,21 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     protocol.handle(SCHEME, serveAsset);
     registerUpdater({ app, dialog, ipcMain, net, shell, getWindow: () => win, entry: ENTRY });
+    registerLibrary({ app, ipcMain, shell, getWindow: () => win, entry: ENTRY });
     const ses = session.defaultSession;
+    ses.setDisplayMediaRequestHandler(async (request, respond) => {
+      if (request.frame !== win?.webContents.mainFrame || !request.userGesture || !request.videoRequested) return respond({});
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } });
+        const source = sources.find(item => item.id === win?.getMediaSourceId());
+        respond(source ? { video: source } : {});
+      } catch { respond({}); }
+    });
     ses.setPermissionCheckHandler((_contents, permission, origin, details) =>
-      permission === 'media' && isLocal(origin) && details.mediaType === 'video');
+      permission === 'media' && isLocal(origin) && ['audio', 'video'].includes(details.mediaType));
     ses.setPermissionRequestHandler((_contents, permission, respond, details) =>
       respond(permission === 'media' && isLocal(details.requestingUrl)
-        && details.mediaTypes?.length === 1 && details.mediaTypes[0] === 'video'));
+        && details.mediaTypes?.length > 0 && details.mediaTypes.every(type => ['video', 'audio'].includes(type))));
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
       { role: 'editMenu' }, { label: 'View', submenu: [{ role: 'togglefullscreen' }] }, { role: 'windowMenu' },

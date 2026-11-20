@@ -10,6 +10,7 @@ files:
   - assets/**
   - vendor/**
   - LICENSE
+  - docs/fflate-LICENSE.txt
 directories:
   output: dist
 buildDependenciesFromSource: false
@@ -34,4 +35,5 @@ mac:
   target: dmg
   category: public.app-category.education
   extendInfo:
+    NSMicrophoneUsageDescription: SmartBoardOS records microphone audio only when you enable it for a recording.
     NSCameraUsageDescription: SmartBoardOS uses the camera only when you choose to add a photo to your board.
