@@ -1,7 +1,7 @@
 {
   "name": "SmartBoardOS \u2014 Interactive Classroom Board",
   "short_name": "SmartBoardOS",
-  "description": "An offline classroom workspace with whiteboard, Document Studio, Map Atlas and Smart Lab.",
+  "description": "An offline classroom workspace with whiteboard, PDF and PowerPoint annotation, Notes and Map Atlas.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

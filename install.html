@@ -1,9 +1,40 @@
 <!doctype html>
 <html lang="en" data-theme="dark" data-accent="indigo">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Install SmartBoardOS offline</title><link rel="stylesheet" href="./css/styles.css"><script type="module" src="./js/install.js"></script></head>
-<body class="install-page"><main class="install-content"><a href="./">← Back to classroom</a><h1>Install SmartBoardOS</h1><p>Download once, then install and teach without internet. The full setup includes the board, document annotation, maps and the desktop recording tools. You can copy the installer to another computer by USB.</p><h2>Choose your computer</h2><div class="install-grid" id="installer-links">
-<a class="btn" data-suffix="win-x64.exe" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Windows · Intel / AMD</a>
-<a class="btn" data-suffix="win-arm64.exe" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Windows · ARM</a>
-<a class="btn" data-suffix="mac-arm64.dmg" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Mac · Apple silicon</a>
-<a class="btn" data-suffix="mac-x64.dmg" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Mac · Intel</a></div>
-<p id="installer-status" role="status">Select a platform to open GitHub Releases. Downloads require an internet connection.</p><p>Windows: run the downloaded setup. Mac: open the disk image and move SmartBoardOS to Applications. Current builds are not publisher-signed or notarized; your device may show a warning.</p><p>Developed by <strong>Analoggeek</strong>.</p></main></body></html>
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Install SmartBoardOS offline</title>
+  <link rel="stylesheet" href="./css/styles.css"><script type="module" src="./js/install.js"></script>
+</head>
+<body class="install-page"><main class="install-content">
+  <a href="./">← Back to classroom</a>
+  <h1>Install SmartBoardOS</h1>
+  <p>Set it up once while online. Then teach without a connection.</p>
+  <section id="phone" aria-labelledby="phone-title">
+    <h2 id="phone-title">Phones and tablets</h2>
+    <h3>iPhone and iPad</h3>
+    <ol>
+      <li>Open the <a href="./">classroom</a> in Safari while online.</li>
+      <li>Tap <strong>Share → Add to Home Screen</strong>. If shown, switch on <strong>Open as Web App</strong>, then tap <strong>Add</strong>.</li>
+      <li>Launch SmartBoardOS from its new icon while still online. Open <strong>Menu → Home</strong> and wait for <strong>Ready offline</strong>, then try reopening in Airplane Mode before class.</li>
+    </ol>
+    <p>This installs a web app, not an App Store app or an IPA. Safari may clear site storage; export important lessons as backups. Screen recording and other device-dependent features may differ from desktop.</p>
+    <h3>Android phones and tablets</h3>
+    <p id="apk-unavailable">The production APK link will appear after a release with the project's signing key. You can install the web app now from Chrome: open the classroom → <strong>⋮ → Install app / Add to Home screen</strong>, then launch it online once and check <strong>Menu → Home</strong> for <strong>Ready offline</strong>.</p>
+    <p id="apk-available" hidden>Download the signed APK once on Android 8 or newer with an up-to-date Android System WebView. Android may ask you to allow installation from your file manager; follow your device or school policy. After installation the bundled app can open without internet, even on first launch.</p>
+    <a class="btn" data-suffix="android-universal.apk" hidden>Download Android APK</a>
+    <p id="offline-status" role="status">Checking this browser’s offline files…</p>
+  </section>
+  <section aria-labelledby="computer-title">
+    <h2 id="computer-title">Windows and Mac</h2>
+    <p>These are full offline installers. You can copy them to another computer by USB.</p>
+    <div class="install-grid" id="installer-links">
+      <a class="btn" data-suffix="win-x64.exe" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Windows · Intel / AMD</a>
+      <a class="btn" data-suffix="win-arm64.exe" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Windows · ARM</a>
+      <a class="btn" data-suffix="mac-arm64.dmg" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Mac · Apple silicon</a>
+      <a class="btn" data-suffix="mac-x64.dmg" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">Mac · Intel</a>
+    </div>
+    <p id="installer-status" role="status">Select a platform to open GitHub Releases.</p>
+    <p>Compare the installer against <a id="installer-checksums" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">SHA256SUMS.txt</a> on the same release. A matching checksum checks the file’s contents; it does not establish a trusted publisher. Check the <a id="installer-release" href="https://github.com/Analoggeek/SmartboardOS2/releases/latest">release notes</a> for Windows signature and Apple notarization status. If your OS or school policy blocks installation, contact IT rather than disabling protection.</p>
+  </section>
+  <p>Developed by <strong>Analoggeek</strong>.</p>
+</main></body></html>

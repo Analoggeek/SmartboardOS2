@@ -1653,3 +1653,13 @@ body:not(.teaching-board):not(:has(.win.focused:not(.min))) .workspace-apps {col
 @media(max-width:480px) { .home-hero {grid-template-columns:1fr;} .home-hero h1 {font-size:clamp(34px,9vw,50px);} .home-illustration {padding:8px 18px 16px;} .hero-ink {height:95px;} #home-resume-preview:not([hidden]) {height:118px;} }
 
 html[data-controls="large"] .board-shortcuts .teaching-shortcut { min-width:44px; min-height:44px; }
+.install-content section { margin: 24px 0; padding: clamp(14px, 3vw, 24px); border: 1px solid var(--border); border-radius: 14px; background: var(--surface-solid); }
+.install-content section h2 { margin-top: 0; }
+.install-content li + li { margin-top: 7px; }
+.install-content [hidden] { display: none; }
+.home-status:not([data-offline="ready"]) i { background: #ad8040; }
+@media(max-width:480px) {
+  .workspace-home .home-header { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
+  .workspace-home .home-meta { display:flex; }
+  .workspace-home .home-status { font-size: 9px; padding: 4px 6px; gap: 4px; }
+}

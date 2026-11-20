@@ -1164,7 +1164,7 @@ export async function mount({ root, params = {}, api }) {
     document.body.append(backdrop); button.focus(); return backdrop;
   }
   function applyBackground(id, newPage) {
-    if (!Object.hasOwn(BG_NAMES,id) || importing || replacing) return;
+    if (!Object.prototype.hasOwnProperty.call(BG_NAMES,id) || importing || replacing) return;
     if (newPage && !addPage()) return;
     if (page().bgImage) { toast('Choose a blank board page for a new background.', 'info'); return; }
     pushHistory();
@@ -1573,10 +1573,10 @@ export async function mount({ root, params = {}, api }) {
     if (p.page) gotoPage(clamp(p.page - 1, 0, pages.length - 1));
     if (p.tool && TOOLS.some((t) => t.id === p.tool)) setTool(p.tool);
     if (p.picker) toggleEmoji();
-    if (Object.hasOwn(templates,p.template)) applyBackground(p.template, !(pages.length === 1 && isBlankBoardPage(page())));
+    if (Object.prototype.hasOwnProperty.call(templates,p.template)) applyBackground(p.template, !(pages.length === 1 && isBlankBoardPage(page())));
     if (p.addPage) addPage();
     if (p.file || p.document) openDocument(p.file);
-    if (typeof p.action === 'string' && Object.hasOwn(actions,p.action)) actions[p.action]();
+    if (typeof p.action === 'string' && Object.prototype.hasOwnProperty.call(actions,p.action)) actions[p.action]();
   };
   const actions = { deletePage: () => removePage(pageIndex, false), deleteImage, askForDocument, showImportDialog, showTemplates, showPageMenu, addPage, insertImage, insertPhoto, toggleEmoji, togglePenSettings, clearPage,
       save: () => saveSession(true), toggleClassWidget: () => mini.toggle(), fitView, exportPNG, exportPDF, undo, redo,

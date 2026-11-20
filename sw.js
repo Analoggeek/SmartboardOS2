@@ -1,10 +1,11 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.20`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.23`;
 const CORE = [
   './',
   './index.html',
   './install.html',
   './js/install.js',
+  './js/offline.js',
   './js/archive.js',
   './js/class-widget.js',
   './js/board-render.js',
@@ -71,11 +72,20 @@ self.addEventListener('activate', (event) => {
     .then(() => self.clients.claim()));
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'SMARTBOARDOS_OFFLINE_STATUS' || !event.ports[0]) return;
+  event.waitUntil(caches.open(VERSION).then(cache => cache.keys()).then(keys => {
+    const cached = new Set(keys.map(request => request.url));
+    return [...assets].every(url => cached.has(url));
+  }).catch(() => false).then(ready => event.ports[0].postMessage({ready})));
+});
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   url.search = '';
+  url.hash = '';
   const home = url.href === self.registration.scope || url.href === new URL('index.html', self.registration.scope).href;
   if (!assets.has(url.href)) return;
   event.respondWith(caches.open(VERSION)
