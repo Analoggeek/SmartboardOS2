@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { insertDocumentPages, MAX_BOARD_PAGES } from '../js/board-document.js';
+import { insertBlankBoardPage, insertDocumentPages, MAX_BOARD_PAGES } from '../js/board-document.js';
 import { localPart } from '../js/pptx-import.js';
 import { cameraFrame, paintCameraFrame } from '../js/camera-layout.js';
 
@@ -29,4 +29,28 @@ test('direct document imports replace only the pristine board, or insert after t
   assert.deepEqual(insertDocumentPages([lesson,template],0,imported),{pageIndex:1,pages:[lesson,...imported,template]});
   assert.deepEqual(insertDocumentPages([template],0,imported),{pageIndex:1,pages:[template,...imported]});
   assert.throws(()=>insertDocumentPages(Array(MAX_BOARD_PAGES).fill(plain),0,imported),/300 pages/);
+});
+
+
+test('inserting blank pages between imported pages preserves order, metadata and ink', () => {
+  for (const source of ['document', 'slide']) {
+    const bgImage = {src:'data:image/jpeg;base64,AA==',w:100,h:100};
+    const first = {source, bg:'plain', bgColor:'#fff', title:'First', bgImage, objects:[{type:'stroke'}]};
+    const last = {source, bg:'plain', bgColor:'#fff', title:'Last', bgImage, objects:[]};
+    const input = [first, last];
+    const result = insertBlankBoardPage(input, 0);
+    assert.equal(result.pageIndex, 1);
+    assert.equal(result.pages[0], first);
+    assert.equal(result.pages[2], last);
+    assert.deepEqual(result.pages[1], {objects:[],bg:'grid',bgColor:undefined,bgImage:null});
+    assert.deepEqual(input, [first, last]);
+    assert.throws(() => insertBlankBoardPage(Array(MAX_BOARD_PAGES).fill(first), 0), /page limit/);
+  }
+});
+
+test('a new board page inherits the surface but not ink or titles', () => {
+  const template = {bg:'cornell',bgColor:'#fff5dd',title:'Lesson',objects:[{type:'stroke'}]};
+  assert.deepEqual(insertBlankBoardPage([template], 0), {
+    pageIndex:1, pages:[template,{objects:[],bg:'cornell',bgColor:'#fff5dd',bgImage:null}],
+  });
 });

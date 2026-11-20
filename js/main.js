@@ -5,7 +5,7 @@ import { templates, templatePreview } from './board-templates.js';
 import { movableControls, resetBoardControls } from './control-layout.js';
 import { appArt } from './app-art.js';
 import { icon, hydrateIcons } from './icons.js';
-import { getSettings, saveSettings } from './db.js';
+import { getSettings, saveSettings, idb } from './db.js';
 import { WindowManager } from './wm.js';
 import * as Whiteboard from './apps/whiteboard.js';
 import * as MediaApp from './apps/media.js';
@@ -145,10 +145,10 @@ const boardGroups = [
   ]],
   ['Pages & view', [
     ['plus','Add board page','addPage'], ['file','Page overview','showPageMenu'], ['chevron-left','Previous page','previousPage'], ['chevron-right','Next page','nextPage'],
-    ['grid','Board designs','showTemplates'], ['expand','Fit content','fitView'], ['plus','Zoom in','zoomIn'], ['minus','Zoom out','zoomOut'], ['rotate','Reset zoom','resetZoom'],
+    ['trash','Delete current page','deletePage'], ['grid','Board designs','showTemplates'], ['expand','Fit content','fitView'], ['plus','Zoom in','zoomIn'], ['minus','Zoom out','zoomOut'], ['rotate','Reset zoom','resetZoom'],
   ]],
   ['Insert & share', [
-    ['camera','Take board photo','insertPhoto'], ['image','Insert image','insertImage'], ['smile','Stickers','toggleEmoji'], ['users','Class widget','toggleClassWidget'],
+    ['camera','Take board photo','insertPhoto'], ['image','Insert image','insertImage'], ['image-x','Delete selected image','deleteImage'], ['smile','Stickers','toggleEmoji'], ['users','Class widget','toggleClassWidget'],
     ['save','Save board','save'], ['pdf','Export board PDF','exportPDF'], ['download','Export page PNG','exportPNG'],
     ['trash','Clear page ink','clearPage'], ['folder','Previous imports','showImportDialog'],
   ]],
@@ -162,6 +162,7 @@ function launch(id, params) { closeAppMenu(); wm.open(id, params); }
 function showHome() {
   closeAppMenu();
   wm.windows.forEach(w => wm.toggleMinimize(w.id, true));
+  refreshHomeBoard();
 }
 function getPins() {
   return Array.isArray(settings().appPins) ? settings().appPins.filter((id, i, a) => appOrder.includes(id) && a.indexOf(id) === i) : defaultPins;
@@ -186,7 +187,27 @@ function renderAppMenu() {
   customize.querySelector('select').value = settings().startup === 'home' ? 'home' : 'board';
   placeAppMenu();
 }
+let homePreviewRequest = 0;
+async function refreshHomeBoard() {
+  const request = ++homePreviewRequest;
+  const active = wm.windows.get('whiteboard')?.instance;
+  const data = active ? {pages:active.getPages(),pageIndex:active.state().pageIndex} : await idb.get('boards','current');
+  if (request !== homePreviewRequest) return;
+  const index = data?.pageIndex ?? 0, page = data?.pages?.[index], count = data?.pages?.length || 1;
+  const visual = $('#home-resume-preview');
+  const hasWork = page && (page.objects?.length || page.bgImage || page.title || count > 1 || page.bg !== 'grid');
+  $('#home-resume-title').textContent = page?.title || (hasWork ? 'Continue your board' : 'Ready for a lesson');
+  $('#home-resume-detail').textContent = hasWork ? `${count} ${count===1?'page':'pages'} · on this device` : 'Open your live whiteboard';
+  $('#home-resume-index').textContent = `${String(index+1).padStart(2,'0')} / ${String(count).padStart(2,'0')}`;
+  const source = page?.bgImage?.src;
+  const show = typeof source === 'string' && /^data:image\/(jpeg|png|webp|gif);base64,/i.test(source);
+  visual.hidden = !show;
+  if (show) visual.src = source; else visual.removeAttribute('src');
+  $('#home-resume-art').classList.toggle('resume-art-hidden',show);
+}
+
 function renderLaunch() {
+  $('#home-resume').onclick = () => launch('whiteboard');
   const order = ['whiteboard','lessons','notes','class','maps','media','recording','calculator','settings'];
   $('#launch-grid').replaceChildren(...order.map(id => appTile(wm.apps.get(id))));
   $('#home-tool-count').textContent = `${order.length} tools`;
@@ -224,7 +245,7 @@ function paletteItems() {
   const actions = [
     {
       icon: 'pen', title: 'New whiteboard page', sub: 'Add a fresh page to the board', hint: 'Action',
-      run: () => { wm.open('whiteboard'); setTimeout(() => wm.windows.get('whiteboard')?.instance?.addPage?.(), 300); },
+      run: () => launch('whiteboard',{addPage:true}),
     },
     { icon: 'pdf', title: 'Import PDF / PPT', sub: 'Open a complete document in the whiteboard', hint: 'Action', run: openDocumentPicker },
     { icon: 'download', title: 'Export board as PDF', sub: 'Download every page as one PDF', hint: 'Action', run: () => exportBoardPDF() },
@@ -358,7 +379,7 @@ function onGlobalKey(e) {
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.backdrop.hidden ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape' && !palette.backdrop.hidden) { closePalette(); return; }
   if (typing) return;
-  if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); wm.open('whiteboard'); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); wm.returnToBoard([...wm.windows.values()].find(w => w.root.classList.contains('focused'))?.id); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openDocumentPicker(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); wm.open('class'); return; }
   if (e.key.toLowerCase() === 'f' && !mod && !e.repeat) {
@@ -446,6 +467,7 @@ async function boot() {
   if (urlApp === 'pdf') wm.open('whiteboard', { document: true });
   else if (urlApp && wm.apps.has(urlApp)) wm.open(urlApp);
   else if (settings().startup !== 'home') wm.open('whiteboard');
+  else refreshHomeBoard();
   setBoot(100, 'Welcome');
   requestAnimationFrame(() => {
     syncControls();

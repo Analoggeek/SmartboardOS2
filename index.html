@@ -44,14 +44,15 @@
         <section class="home-hero" aria-labelledby="home-headline">
           <div class="home-hero-copy">
             <p class="home-eyebrow"><span></span><span id="hero-greet">Welcome, Teacher</span></p>
-            <h1 id="home-headline">A little room<br/> <em>for big ideas.</em></h1>
-            <p class="home-intro">Sketch, explain and build a lesson on a board that’s yours.</p>
+            <h1 id="home-headline">Your teaching<br/> <em>desk.</em></h1>
+            <p class="home-intro">Continue your board, bring in a deck, or get the next lesson ready.</p>
             <div class="hero-actions" id="hero-actions"></div>
           </div>
-          <div class="home-illustration" aria-hidden="true">
-            <div class="hero-sketch">
-              <div class="hero-sketch-top"><i></i><span>The idea board</span><b>01 / 01</b></div>
-              <svg viewBox="0 0 432 210" class="hero-ink" fill="none">
+          <button class="home-illustration home-resume" id="home-resume" type="button" aria-label="Resume the current whiteboard">
+            <span class="hero-sketch">
+              <span class="hero-sketch-top"><i></i><span>WHITEBOARD</span><b id="home-resume-index">01 / 01</b></span>
+              <img id="home-resume-preview" alt="" hidden/>
+              <svg viewBox="0 0 432 210" class="hero-ink" id="home-resume-art" aria-hidden="true" fill="none">
                 <path d="M32 45h364M32 86h364M32 127h364M32 168h364M80 24v157m54-157v157m54-157v157m54-157v157m54-157v157m54-157v157" stroke="#d6d5c6" stroke-width="1" stroke-dasharray="2 6" />
                 <path d="M44 168h350M63 180V27m-6 8 6-8 6 8m316 126 9 7-9 6" stroke="#273e41" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M65 143c52-12 67-10 91 4s59 11 84-29c28-45 55-29 77-37 28-10 37-25 55-43" stroke="#618d80" stroke-width="18" stroke-linecap="round" opacity=".24"/>
@@ -60,9 +61,9 @@
                 <path d="M179 62c20 2 36 12 49 32m-15-5 15 5 2-14M314 46v16m-8-8h16" stroke="#ba7659" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M102 53c10-4 50-5 60 0l-2 21c-12 4-46 3-58 0z" fill="#f1ddaa" /><text x="114" y="68" fill="#665437" font-size="13" font-family="system-ui" font-weight="600">Explain</text>
               </svg>
-              <div class="hero-sketch-bottom"><span class="sample-pen" data-icon="pen"></span><span class="sample-dot"></span><span class="sample-dot"></span><span class="sample-dot"></span></div>
-            </div>
-          </div>
+              <span class="hero-sketch-bottom"><span><strong id="home-resume-title">Ready for a lesson</strong><small id="home-resume-detail">Open your live whiteboard</small></span><span data-icon="arrow" aria-hidden="true"></span></span>
+            </span>
+          </button>
         </section>
         <div class="home-content">
           <section aria-labelledby="toolkit-title">
