@@ -64,7 +64,7 @@ export function templatePreview(id) {
   const c=document.createElement('canvas');c.width=210;c.height=124;c.className='board-template-preview';c.setAttribute('aria-hidden','true');
   const ctx=c.getContext('2d');ctx.fillStyle=BG_FILLS[id]||'#202948';ctx.fillRect(0,0,c.width,c.height);
   const tiny = ['coordinate','blueprint','hex'].includes(id);
-  if(tiny){ctx.scale(.46,.46);paintBgPattern(ctx,{x:0,y:100,w:c.width/.46,h:c.height/.46},id,false,1.5);}
+  if(tiny){ctx.scale(.46,.46);ctx.translate(0,-100);paintBgPattern(ctx,{x:0,y:100,w:c.width/.46,h:c.height/.46},id,false,1.5);}
   else paintBgPattern(ctx,{x:0,y:0,w:c.width,h:c.height},id,false,.75);
   return c;
 }
