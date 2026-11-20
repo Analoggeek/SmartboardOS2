@@ -1,0 +1,21 @@
+{
+  "name": "smartboardos",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SmartBoardOS \u2014 a full interactive whiteboard operating system for classrooms, built with vanilla JS and deployable on GitHub Pages.",
+  "scripts": {
+    "dev": "npx --yes serve . -l 5173",
+    "start": "npx --yes serve . -l 5173",
+    "publish": "bash scripts/publish.sh"
+  },
+  "keywords": [
+    "whiteboard",
+    "smartboard",
+    "education",
+    "pwa",
+    "pdf",
+    "teacher"
+  ],
+  "license": "MIT"
+}

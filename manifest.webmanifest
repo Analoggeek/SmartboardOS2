@@ -1,0 +1,108 @@
+{
+  "name": "SmartBoardOS — Interactive Classroom Board",
+  "short_name": "SmartBoardOS",
+  "description": "A teachers’ hub in your browser: pen-pressure whiteboard with palm rejection, PDF presenting, 3D models, a safe class browser that sends anything to the board, class tools and PDF export. Works offline.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "fullscreen",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#060913",
+  "theme_color": "#0b1020",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": [
+    "education",
+    "productivity",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "./assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Whiteboard",
+      "short_name": "Board",
+      "description": "Start drawing straight away",
+      "url": "./?app=whiteboard",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Class Browser",
+      "short_name": "Browser",
+      "description": "Safe web + send pages to the board",
+      "url": "./?app=browser",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Present a PDF",
+      "short_name": "PDF",
+      "description": "Open a PDF and present it",
+      "url": "./?app=pdf",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Class Tools",
+      "short_name": "Tools",
+      "description": "Picker, timer, scoreboard",
+      "url": "./?app=class",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Open 3D Lab",
+      "short_name": "3D",
+      "description": "3D models for teaching",
+      "url": "./?app=lab3d",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
