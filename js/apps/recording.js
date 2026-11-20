@@ -101,6 +101,9 @@ export function mount({ root }) {
       }, audio: false });
       if (closed || request !== generation) { stopTracks(stream); return false; }
       camera = stream;
+      camera.getVideoTracks()[0].addEventListener('ended', () => {
+        if (camera === stream && !active) { stopPreview(); status.textContent = 'Camera disconnected.'; }
+      }, { once: true });
       video.srcObject = camera;
       overlay.hidden = preview.hidden = false;
       const config = stream.getVideoTracks()[0].getSettings();
@@ -116,7 +119,10 @@ export function mount({ root }) {
   const stop = el('button', { class: 'btn danger', text: 'Stop recording', onclick: () => recorder?.state === 'recording' && recorder.stop() });
   stop.disabled = true;
   const previewButton = el('button', { class: 'btn', text: 'Start / switch camera preview', onclick: startCamera });
-  const stopButton = el('button', { class: 'btn', text: 'Turn off camera', onclick: stopPreview });
+  const stopButton = el('button', { class: 'btn', text: 'Turn off camera', onclick: () => { followCamera.checked = false; stopPreview(); } });
+  followCamera.onchange = async () => {
+    if (followCamera.checked && !camera && !await startCamera()) followCamera.checked = false;
+  };
   const folder = el('button', { class: 'btn', text: 'Open lesson folder', onclick: async () => {
     try { if (await library.open()) throw new Error(); } catch { status.textContent = 'Could not open Documents/SmartBoardOS.'; }
   } });
@@ -198,7 +204,7 @@ export function mount({ root }) {
   refreshDevices().catch(() => {});
   host.append(el('p', { text: 'Record this app, a camera, or just your microphone. Resolution depends on the source and hardware. Video uses WebM; no upload.' }),
     row('Capture source', mode), row('Maximum resolution (up to 4K)', size), row('Include microphone', mic), row('Include camera inset in window recording', inset),
-    row('Camera device', device), row('Auto-preview newly connected cameras while Studio is open', followCamera),
+    row('Camera device', device), row('Enable auto-preview of new cameras (starts a camera preview now)', followCamera),
     row('Chroma key · requires a solid backdrop', key), row('Backdrop colour', keyColor), row('Key tolerance', tolerance),
     el('p', { text: 'A phone must already appear as a webcam on your computer. Keyed camera-only video runs at a lower resolution for responsiveness; use window mode for a keyed inset.' }),
     el('div', { class: 'hero-actions' }, previewButton, stopButton, begin, stop, folder), status);
