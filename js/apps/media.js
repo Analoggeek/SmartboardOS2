@@ -11,15 +11,44 @@ export function mount({ root, api }) {
   const countBadge = el('span', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginLeft: '4px' } });
 
   const fileInputBtn = el('button', { class: 'tool-btn ghost', html: `${icon('upload')}<span>Upload</span>`, onclick: upload });
+  const clipVideo = el('video', { controls: '', playsinline: '', preload: 'metadata' });
+  const clipPanel = el('section', { class: 'media-player', hidden: true }, clipVideo);
+  let videoSrc, captionSrc;
+  function closeClip() {
+    clipPanel.hidden = true; clipVideo.pause(); clipVideo.removeAttribute('src');
+    clipVideo.replaceChildren(); clipVideo.load();
+    if (captionSrc) URL.revokeObjectURL(captionSrc);
+    if (videoSrc) URL.revokeObjectURL(videoSrc);
+    videoSrc = captionSrc = null;
+  }
+  clipPanel.append(el('div', { class: 'hero-actions' },
+    el('button', { class: 'btn', text: 'Add captions (.vtt)', onclick: async () => {
+      const [file] = await pickFiles({ accept: '.vtt' });
+      if (!file || !videoSrc) return;
+      if (file.size > 2_000_000) return toast('Choose a WebVTT file under 2 MB.', 'warn');
+      const text = await file.text();
+      if (!videoSrc) return;
+      if (!/^\uFEFF?WEBVTT(?:[ \t]|\r?\n|$)/.test(text)) return toast('Choose a valid WebVTT file.', 'warn');
+      clipVideo.querySelector('track')?.remove();
+      if (captionSrc) URL.revokeObjectURL(captionSrc);
+      captionSrc = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }));
+      const track = el('track', { kind: 'captions', label: 'Lesson captions', src: captionSrc, default: '' });
+      clipVideo.append(track); track.track.mode = 'showing';
+    } }), el('button', { class: 'btn', text: 'Close playback', onclick: closeClip })));
   const toolbar = el('div', { class: 'app-toolbar' },
     fileInputBtn,
+    el('button', { class: 'tool-btn', text: 'Play recording', onclick: async () => {
+      const [clip] = await pickFiles({ accept: 'video/webm,video/mp4,.webm,.mp4' });
+      if (!clip || !root.isConnected) return;
+      closeClip(); videoSrc = URL.createObjectURL(clip); clipVideo.src = videoSrc; clipPanel.hidden = false;
+    } }),
     el('button', { class: 'tool-btn', html: `${icon('board')}<span>Send to board</span>`, onclick: () => { if (items[0]) sendToBoard(items[0]); else toast('Upload an image first', 'warn'); } }),
     countBadge,
     el('div', { style: { flex: '1' } }),
     el('button', { class: 'tool-btn', html: icon('trash'), title: 'Clear library', onclick: clearAll })
   );
 
-  const app = el('div', { class: 'app' }, toolbar, grid);
+  const app = el('div', { class: 'app' }, toolbar, clipPanel, grid);
   root.append(app);
 
   function urlFor(item) {
@@ -118,7 +147,7 @@ export function mount({ root, api }) {
   })();
 
   return {
-    onClose: () => urlCache.forEach((u) => URL.revokeObjectURL(u)),
+    onClose: () => { closeClip(); urlCache.forEach(u => URL.revokeObjectURL(u)); },
     count: () => items.length,
   };
 }

@@ -46,7 +46,18 @@ function openWindow() {
     icon: path.join(app.getAppPath(), 'assets/icons/icon-512.png'),
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload.cjs') },
   });
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isLocal(url) || !/^\/student\.html\?board=[a-f0-9]{32}$/.test(url.slice(`${SCHEME}://${HOST}`.length))) return { action: 'deny' };
+    return { action: 'allow', overrideBrowserWindowOptions: {
+      width: 1024, height: 680, backgroundColor: '#070a14',
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: undefined },
+    } };
+  });
+  win.webContents.on('did-create-window', (child) => {
+    child.removeMenu();
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    child.webContents.on('will-navigate', event => event.preventDefault());
+  });
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
   win.once('ready-to-show', () => win?.show());
@@ -72,13 +83,14 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } });
         const source = sources.find(item => item.id === win?.getMediaSourceId());
-        respond(source ? { video: source } : {});
+        const loopback = request.audioRequested && process.platform === 'win32';
+        respond(source ? { video: source, ...(loopback ? { audio: 'loopback' } : {}) } : {});
       } catch { respond({}); }
     });
-    ses.setPermissionCheckHandler((_contents, permission, origin, details) =>
-      permission === 'media' && isLocal(origin) && ['audio', 'video'].includes(details.mediaType));
-    ses.setPermissionRequestHandler((_contents, permission, respond, details) =>
-      respond(permission === 'media' && isLocal(details.requestingUrl)
+    ses.setPermissionCheckHandler((contents, permission, origin, details) =>
+      contents === win?.webContents && permission === 'media' && isLocal(origin) && ['audio', 'video'].includes(details.mediaType));
+    ses.setPermissionRequestHandler((contents, permission, respond, details) =>
+      respond(contents === win?.webContents && permission === 'media' && isLocal(details.requestingUrl)
         && details.mediaTypes?.length > 0 && details.mediaTypes.every(type => ['video', 'audio'].includes(type))));
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),

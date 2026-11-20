@@ -1,7 +1,9 @@
 /* Settings — appearance, classroom profile, data, install */
-import { el, toast } from '../utils.js';
+import { el, toast, pickFiles, downloadBlob } from '../utils.js';
 import { icon } from '../icons.js';
 import { getSettings, saveSettings, store, idb } from '../db.js';
+import { checkBoard } from '../lesson-pack.js';
+import { checkpoint } from '../board-checkpoints.js';
 import { getPenSettings, savePenSettings } from '../pen.js';
 import { capturePhoto } from '../camera.js';
 
@@ -63,6 +65,13 @@ export function mount({ root }) {
       window.__sbos.applyMotion(); paint();
     })));
 
+    group1.append(row('High contrast', 'More visible text, boundaries and focus indicators', toggle(s.contrast, (v) => {
+      s = saveSettings({ contrast: v }); window.__sbos.applyTheme();
+    }, 'High contrast')));
+    group1.append(row('Large touch controls', 'Larger buttons on interactive panels', toggle(s.largeControls, (v) => {
+      s = saveSettings({ largeControls: v }); window.__sbos.applyTheme();
+    }, 'Large touch controls')));
+
     /* classroom */
     const group2 = el('div', { class: 'set-group' }, el('h4', { text: 'Classroom' }));
     const nameInput = el('input', {
@@ -102,6 +111,10 @@ export function mount({ root }) {
           if (result.status === 'ready') {
             status.textContent = `Version ${result.version} downloaded. Saving your work…`;
             await window.__sbos.saveWork();
+            const board = await idb.get('boards', 'current');
+            if (board && !await checkpoint(board, `Before update ${result.version}`, true) && !confirm('A recovery point could not be saved. Continue with the update anyway?')) {
+              status.textContent = 'Installer ready. You can export a backup and check again.'; return;
+            }
             const launch = await bridge.install();
             status.textContent = ({ opened: 'Update installer opened.', later: 'Installer ready. Check again when you want to install.' })[launch.status]
               || 'Could not open the installer.';
@@ -129,8 +142,11 @@ export function mount({ root }) {
 
     /* data */
     const group4 = el('div', { class: 'set-group' }, el('h4', { text: 'Data' }));
-    group4.append(row('Export everything', 'Download your board, notes and settings as JSON', el('button', {
+    group4.append(row('Export board backup', 'Download the current board and basic classroom info as JSON. Use Lesson Packs for attachments.', el('button', {
       class: 'btn', html: `${icon('download')}<span>Export</span>`, onclick: exportAll,
+    })));
+    group4.append(row('Restore board backup', 'Bring back the editable board from SmartBoardOS backup JSON', el('button', {
+      class: 'btn', text: 'Restore board', onclick: restoreBoard,
     })));
     group4.append(row('Reset this device', 'Clears board, notes, images and PDFs stored locally', el('button', {
       class: 'btn danger', html: `${icon('trash')}<span>Reset</span>`, onclick: resetAll,
@@ -200,13 +216,17 @@ export function mount({ root }) {
     document.body.append(backdrop);
   }
 
-  function toggle(value, onChange) {
-    const t = el('button', { class: `toggle ${value ? 'on' : ''}` });
-    t.addEventListener('click', () => { const v = !t.classList.contains('on'); t.classList.toggle('on', v); onChange(v); });
+  function toggle(value, onChange, name) {
+    const t = el('button', { class: `toggle ${value ? 'on' : ''}`, role: 'switch', 'aria-checked': String(!!value), 'aria-label': name });
+    t.addEventListener('click', () => { const v = !t.classList.contains('on'); t.classList.toggle('on', v); t.setAttribute('aria-checked', String(v)); onChange(v); });
     return t;
   }
 
   async function exportAll() {
+    try {
+      const board = window.__sbos.wm.windows.get('whiteboard')?.instance;
+      if (board && !await board.save()) throw Error();
+    } catch { toast('Could not save the current board for backup.', 'err'); return; }
     const data = {
       exportedAt: new Date().toISOString(),
       settings: getSettings(),
@@ -215,12 +235,19 @@ export function mount({ root }) {
       teams: store.get('teams', []),
       board: await idb.get('boards', 'current'),
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = el('a', { href: url, download: `smartboard-backup-${new Date().toISOString().slice(0, 10)}.json` });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), `smartboard-backup-${new Date().toISOString().slice(0, 10)}.json`);
     toast('Backup downloaded', 'ok');
+  }
+
+  async function restoreBoard() {
+    const [file] = await pickFiles({ accept: '.json' });
+    if (!file) return;
+    try {
+      if (file.size > 25 * 1024 * 1024) throw Error('Use a JSON backup under 25 MB.');
+      const data = JSON.parse(await file.text());
+      const board = checkBoard(data.board || data);
+      if (confirm('Restore this board? A recovery point of the current board will be kept first.')) window.__sbos.open('whiteboard', { lessonBoard: board, title: 'Board backup' });
+    } catch (error) { toast(error.message || 'Could not read the backup.', 'err'); }
   }
 
   async function resetAll() {

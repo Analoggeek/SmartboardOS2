@@ -4,6 +4,7 @@ productName: SmartBoardOS
 files:
   - desktop/*.cjs
   - index.html
+  - student.html
   - manifest.webmanifest
   - css/**
   - js/**

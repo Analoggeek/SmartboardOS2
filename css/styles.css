@@ -383,10 +383,9 @@ kbd {
 .dock::-webkit-scrollbar { display: none; }
 .dock-item {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 6px 8px 4px; border-radius: 15px; transition: .18s var(--spring); flex: none;
+  padding: 6px 8px 4px; border-radius: 15px; transition: background-color .18s ease; flex: none;
 }
-.dock-item:hover { background: var(--surface-2); transform: translateY(-4px) scale(1.05); }
-.dock-item:active { transform: scale(.96); }
+.dock-item:is(:hover,:focus-visible) { background: var(--surface-2); }
 .dock-ico {
   width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center;
   background: var(--d-soft, var(--accent-soft)); color: var(--d-color, var(--accent));
@@ -844,7 +843,7 @@ html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="
 }
 
 /* tiltable cards */
-.launch-card, .widget, .stat, .tips-card, .dock-item { transform-style: preserve-3d; }
+.launch-card, .widget, .stat, .tips-card { transform-style: preserve-3d; }
 .launch-card {
   transform: perspective(1000px) rotateX(var(--rx)) rotateY(var(--ry));
   transition: transform .28s var(--ease), box-shadow .28s var(--ease), border-color .28s;
@@ -868,8 +867,6 @@ html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="
 /* dock depth */
 .dock-wrap { perspective: 900px; }
 .dock { transform-style: preserve-3d; }
-.dock-item:hover { transform: translateY(-9px) translateZ(40px) scale(1.14); }
-.dock-item:hover .dock-ico { box-shadow: 0 16px 30px -14px var(--d-color, var(--accent)), inset 0 1px 0 rgba(255, 255, 255, .3); }
 .dock-ico { box-shadow: 0 10px 20px -12px var(--d-color, var(--accent)), inset 0 1px 0 rgba(255, 255, 255, .28); transition: box-shadow .2s; }
 
 /* windows: 3D while dragging */
@@ -1279,14 +1276,30 @@ html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="
   .dock { justify-content: flex-start; }
 }
 
-/* Presentation: native fullscreen when available, immersive viewport otherwise. */
-.os:has(.wb-immersive:not(.min):not(.closing)) { grid-template-rows: minmax(0, 1fr); }
-.os:has(.wb-immersive:not(.min):not(.closing)) > :is(.topbar,.dock-wrap) { display: none; }
-.win.wb-immersive { inset: 0 !important; width: 100% !important; height: 100% !important; border-radius: 0; border: 0; }
-.win:where(:fullscreen,.wb-immersive) .wb-present { background: var(--accent-soft); color: var(--accent); }
-.win:where(:fullscreen,.wb-immersive) .resize-h { display: none; }
-.studio-preview .studio-video-source { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+/* Keep the app's dock hit box stationary; only the non-interactive art moves. */
+.dock-item > * { pointer-events: none; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .dock-item .dock-ico { transition: transform .18s ease-out; }
+  .dock-item:is(:hover,:focus-visible) .dock-ico { transform: translateY(-2px) scale(1.08); }
+}
 
+/* True edge-to-edge canvas: native fullscreen or a fixed viewport fallback. */
+.os:has(.wb-presenting:not(.closing)) { display: block; padding: 0; }
+.os:has(.wb-presenting:not(.closing)) > :not(.desktop),
+.os:has(.wb-presenting:not(.closing)) .desktop > :not(.window-layer),
+.os:has(.wb-presenting:not(.closing)) .window-layer > .win:not(.wb-presenting) { display: none !important; }
+.os:has(.wb-presenting:not(.closing)) :is(.desktop,.window-layer) { position: absolute; inset: 0; overflow: visible; }
+.win.wb-presenting { position: fixed; inset: 0 !important; width: 100% !important; height: 100% !important; min-width: 0; min-height: 0; border: 0; border-radius: 0; box-shadow: none; animation: none; transform: none; backdrop-filter: none; }
+.wb-presenting > .win-head, .wb-presenting > .resize-h, .wb-presenting .pdf-annotation-bar,
+.wb-presenting .wb-toolbar:not(.wb-tools-open), .wb-presenting .wb-empty,
+.wb-presenting .wb-stage > :is(.wb-status,.wb-zoom,.wb-float) { display: none; }
+.wb-presenting .wb-stage > :is(.wb-zoom,.wb-float):not([hidden]) { z-index: 9; }
+.wb-presenting:has(.wb-tools-open) .wb-stage > .wb-zoom { display: flex; }
+.wb-presenting:has(.wb-tools-open) .wb-stage > .wb-float:not([hidden]) { display: flex; }
+.wb-presenting .wb-toolbar.wb-tools-open { position: absolute !important; z-index: 15; inset: max(49px, calc(env(safe-area-inset-top) + 49px)) 8px auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-solid); }
+.wb-presentation-controls { position: absolute; z-index: 16; top: max(6px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 4px; }
+.wb-presentation-controls[hidden] { display: none; }
+.wb-presentation-controls .btn { padding: 7px 10px; background: var(--surface-solid); box-shadow: none; }
 /* Low-cost icon depth: static surface layers, with movement only on deliberate hover. */
 .launch-icon, .dock-ico, .toolbox-btn > span:first-child {
   background-image: linear-gradient(155deg, rgba(255,255,255,.21), transparent 54%, rgba(0,0,0,.15));
@@ -1375,3 +1388,63 @@ html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="
   .atlas-footer { grid-template-columns: auto minmax(0, 1fr); }
   .atlas-footer > .btn.primary { grid-column: 1/-1; }
 }
+
+/* Offline Lesson Library */
+.lesson-library h2 { margin: 2px 0 8px; }
+.lesson-library h3 { margin: 8px 0; }
+.lesson-library p, .lesson-library small { color: var(--text-2); }
+.lesson-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 16px; }
+.lesson-grid > section { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: var(--surface-2); min-width: 0; }
+.lesson-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.lesson-fields > :is(:first-child, textarea) { grid-column: 1 / -1; }
+.lesson-library .field { width: 100%; min-width: 0; }
+.lesson-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-block: 7px; }
+.lesson-actions > .field { flex: 1 1 185px; }
+.lesson-actions .btn { font-size: 12px; padding: 7px 9px; white-space: normal; }
+.lesson-list, .lesson-files { display: grid; gap: 6px; }
+.lesson-files > div { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.lesson-files > div > span { flex: 1; overflow-wrap: anywhere; }
+.lesson-card { display: grid; padding: 8px; gap: 4px; border: 1px solid var(--border); border-radius: 9px; overflow-wrap: anywhere; }
+.lesson-card .btn { justify-self: start; }
+.lesson-status:empty { display: none; }
+.pdf-export-status { margin: 0; font-size: 13px; }
+@container app-window (max-width: 670px) { .lesson-grid { grid-template-columns: minmax(0,1fr); } }
+.lab-filters { grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(0, 1fr)); }
+.lab-answer { margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.lab-answer summary { cursor: pointer; font-weight: 600; }
+.lab-experiment { margin-top: 10px; padding: 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+.lab-experiment h4 { margin: 0 0 8px; }
+.lab-slider { display: grid; grid-template-columns: minmax(94px,1fr) minmax(70px,1.5fr) 53px; gap: 6px; align-items: center; font-size: 13px; margin: 8px 0; }
+.lab-slider input { width: 100%; accent-color: var(--accent); }
+.lab-sim-plot svg { width: 100%; display: block; border-radius: 7px; }
+.studio-chapters { margin-top: 10px; align-items: center; }
+@container app-window (max-width: 620px) { .lab-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@container app-window (max-width: 470px) { .lab-filters input { grid-column: auto; } }
+.atlas-city { position: relative; min-width: 0; }
+.atlas-city .field { max-width: 100%; width: 145px; height: 37px; }
+.atlas-city-results { position: absolute; z-index: 14; inset: calc(100% + 3px) auto auto 0; min-width: 170px; max-width: min(290px, 82vw); padding: 6px; display: grid; gap: 5px; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-sm); }
+.atlas-city-results[hidden] { display: none; }
+.atlas-city-results button { text-align: left; }
+@container app-window (max-width: 540px) {
+  .map-controls.atlas-location > :last-child { grid-column: auto; }
+  .atlas-location .atlas-city .field { width: 100%; }
+  .atlas-city-results { inset-inline: auto 0; }
+}
+.teacher-tools { padding: 12px; }
+.teacher-tools > .field { width: 100%; }
+.teacher-tools .hero-actions label .field { width: 60px; }
+.seat-front { text-align: center; font-size: 12px; padding: 7px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; }
+.seat-grid { display: grid; gap: 7px; overflow: auto; }
+.seat-grid label { display: grid; min-width: 0; gap: 4px; color: var(--text-2); }
+.seat-grid .field { width: 100%; }
+.poll-results { display: grid; gap: 7px; margin: 10px 0; }
+.poll-option { display: grid; grid-template-columns: minmax(80px,1fr) minmax(42px,1fr) 24px 32px 32px; align-items: center; gap: 6px; }
+.poll-option :is(progress,.field) { width: 100%; min-width: 0; accent-color: var(--accent); }
+html[data-contrast="high"] { --surface-2: #313847; --surface-3: #424b5e; --text-2: #f4f7ff; --text-3: #e8efff; --border: #b7c4dd; --border-strong: #e5eeff; --accent: #ffd46b; --accent-soft: #644b23; }
+html[data-theme="light"][data-contrast="high"] { --surface-2: #e4eaf2; --surface-3: #d2dce9; --text-2: #13243d; --text-3: #1f3453; --border: #61748e; --border-strong: #253752; --accent: #17378d; --accent-soft: #cddaef; }
+html[data-theme="dark"][data-contrast="high"] .btn.primary { color: #101822; }
+html[data-contrast="high"] :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+html[data-controls="large"] :is(.btn,.tool-btn,.atlas-layer,.lab-entry,.ct-tab,.dock-item) { min-height: 44px; min-width: 44px; }
+.media-player { flex: none; padding: 10px; border-bottom: 1px solid var(--border); }
+.media-player[hidden] { display: none; }
+.media-player video { width: 100%; max-height: 42vh; background: #080b13; display: block; margin-bottom: 7px; border-radius: 8px; }

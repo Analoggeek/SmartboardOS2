@@ -1,5 +1,5 @@
 /* Class tools — random picker, spinner wheel, timer, stopwatch, scoreboard, dice */
-import { el, toast, confetti, beep, chime, fmtDuration, clamp, uid, announce } from '../utils.js';
+import { el, toast, confetti, beep, chime, fmtDuration, clamp, uid, announce, downloadBlob } from '../utils.js';
 import { icon } from '../icons.js';
 import { state } from '../db.js';
 import { diceFace } from '../diceface.js';
@@ -11,6 +11,8 @@ const TABS = [
   { id: 'stopwatch', name: 'Stopwatch', icon: 'stopwatch' },
   { id: 'score', name: 'Scoreboard', icon: 'trophy' },
   { id: 'dice', name: 'Dice', icon: 'dice' },
+  { id: 'seats', name: 'Seats', icon: 'users' },
+  { id: 'poll', name: 'Quick poll', icon: 'layers' },
 ];
 
 export function mount({ root }) {
@@ -46,6 +48,76 @@ export function mount({ root }) {
     if (active === 'stopwatch') panel.append(renderStopwatch());
     if (active === 'score') panel.append(renderScore());
     if (active === 'dice') panel.append(renderDice());
+    if (active === 'seats') panel.append(renderSeats());
+    if (active === 'poll') panel.append(renderPoll());
+  }
+
+  function renderSeats() {
+    const saved = state.get('seats-v1', { rows: 4, cols: 5, assignments: {} });
+    const grid = el('div', { class: 'seat-grid' });
+    const num = (label, value) => el('input', { class: 'field', type: 'number', min: 1, max: 8, value, 'aria-label': label });
+    const rows = num('Rows', saved.rows), cols = num('Columns', saved.cols);
+    const box = el('section', { class: 'teacher-tools' }, el('h3', { text: 'Seating plan' }),
+      el('p', { text: 'Uses names from Picker. Assign seats by row and column; the plan stays on this device.' }),
+      el('div', { class: 'hero-actions' }, el('label', {}, 'Rows ', rows), el('label', {}, 'Columns ', cols),
+        el('button', { class: 'btn', text: 'Fill from roster', onclick: () => {
+          saved.assignments = {};
+          [...new Set(names())].slice(0,saved.rows*saved.cols).forEach((name,i) => { saved.assignments[`${Math.floor(i/saved.cols)}:${i%saved.cols}`] = name; });
+          refresh();
+        } }), el('button', { class: 'btn', text: 'Clear seats', onclick: () => { if (confirm('Clear this seating plan?')) { saved.assignments = {}; refresh(); } } })),
+      el('p', { class: 'seat-front', text: 'BOARD / FRONT OF ROOM' }), grid);
+    function refresh() {
+      saved.rows = +rows.value || 4; saved.cols = +cols.value || 5;
+      state.set('seats-v1',saved);
+      grid.style.gridTemplateColumns = `repeat(${saved.cols}, minmax(92px, 1fr))`;
+      grid.replaceChildren(...Array.from({ length: saved.rows*saved.cols }, (_,i) => {
+        const row = Math.floor(i/saved.cols), col = i%saved.cols, key = `${row}:${col}`;
+        const choices = [...new Set(names().concat(saved.assignments[key] || []))];
+        const select = el('select', { class: 'field', 'aria-label': `Seat ${row+1}-${col+1}` }, el('option', { value: '', text: 'Empty' }), ...choices.map(n=>el('option',{value:n,text:n})));
+        select.value = saved.assignments[key] || '';
+        select.onchange = () => {
+          if (select.value) for (const k of Object.keys(saved.assignments)) if (k !== key && saved.assignments[k] === select.value) delete saved.assignments[k];
+          saved.assignments[key] = select.value; refresh(); grid.children[i]?.querySelector('select')?.focus();
+        };
+        return el('label', {}, el('small', { text: `${row+1}–${col+1}` }), select);
+      }));
+    }
+    rows.onchange = cols.onchange = () => { rows.value = clamp(+rows.value || 1,1,8); cols.value = clamp(+cols.value || 1,1,8); refresh(); };
+    refresh(); return box;
+  }
+
+  function renderPoll() {
+    const data = state.get('poll-v1', { question: '', counts: [0,0,0,0], labels: ['A','B','C','D'] });
+    const field = el('input', { class: 'field', 'aria-label': 'Poll question', placeholder: 'Ask a question or exit-ticket check…', maxlength: 180, value: data.question });
+    const result = el('div', { class: 'poll-results' });
+    const total = el('p', { role: 'status' });
+    const rows = data.labels.map((text,i) => {
+      const label = el('input', { class: 'field', 'aria-label': `Option ${i+1}`, value: text, maxlength: 80 });
+      const meter = el('progress', { max: 1, value: 0 });
+      const count = el('output');
+      const adjust = (amount) => { data.counts[i] = Math.max(0, data.counts[i] + amount); save(); };
+      label.oninput = () => { data.labels[i] = label.value; save(); };
+      result.append(el('div', { class: 'poll-option' }, label, meter, count,
+        el('button', { class: 'mini-btn', text: '−', 'aria-label': `Remove vote from option ${i+1}`, onclick: () => adjust(-1) }),
+        el('button', { class: 'mini-btn', text: '+', 'aria-label': `Add vote to option ${i+1}`, onclick: () => adjust(1) })));
+      return {meter,count};
+    });
+    const sum = () => data.counts.reduce((a,b)=>a+b,0);
+    function save() {
+      state.set('poll-v1',data);
+      total.textContent = `${sum()} response${sum() === 1 ? '' : 's'}`;
+      rows.forEach(({meter,count},i) => { meter.value = sum() ? data.counts[i]/sum() : 0; count.textContent = data.counts[i]; });
+    }
+    field.oninput = () => { data.question = field.value; save(); };
+    function exportPoll() {
+      const csv = s => `"${(/^[=+@\-]/.test(String(s).trimStart()) ? "'" : '') + String(s).replaceAll('"','""')}"`;
+      downloadBlob(new Blob(['Question,Option,Votes\n', ...data.labels.map((name,i)=>`${csv(data.question)},${csv(name)},${data.counts[i]}\n`)],{type:'text/csv;charset=utf-8'}), 'class-poll.csv');
+    }
+    save();
+    return el('section', { class: 'teacher-tools' }, el('h3', { text: 'Quick poll / exit ticket' }),
+      el('p', { text: 'Tally hands or let students vote one at a time on the classroom board. No names, accounts or network connection.' }), field, result, total,
+      el('div', { class: 'hero-actions' }, el('button', { class:'btn', text:'Reset votes', onclick: () => { if (confirm('Reset all vote counts?')) { data.counts = [0,0,0,0]; save(); } } }),
+        el('button', { class:'btn primary', text:'Export tally CSV', onclick: exportPoll })));
   }
 
   /* ================= Picker ================= */

@@ -1,17 +1,28 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.10`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.12`;
 const CORE = [
   './',
   './index.html',
   './install.html',
+  './student.html',
+  './css/student.css',
+  './js/student-display.js',
+  './js/board-broadcast.js',
   './js/install.js',
   './js/archive.js',
+  './js/board-render.js',
+  './js/board-checkpoints.js',
+  './js/lesson-pack.js',
+  './js/apps/lessons.js',
   './js/eraser.js',
   './js/document-import.js',
   './js/map-data.js',
+  './js/map-cities.js',
   './js/map-india.js',
   './js/app-art.js',
   './js/lab-diagrams.js',
+  './js/lab-practice.js',
+  './js/apps/lab-experiments.js',
   './js/apps/lab.js',
   './js/map-states.js',
   './js/map-physical.js',
@@ -73,6 +84,6 @@ self.addEventListener('fetch', (event) => {
   const home = url.href === self.registration.scope || url.href === new URL('index.html', self.registration.scope).href;
   if (!assets.has(url.href)) return;
   event.respondWith(caches.open(VERSION)
-    .then((cache) => cache.match(req.mode === 'navigate' && home ? self.registration.scope : req))
+    .then((cache) => cache.match(req.mode === 'navigate' ? home ? self.registration.scope : url.href : req))
     .then((cached) => cached || fetch(req)));
 });
