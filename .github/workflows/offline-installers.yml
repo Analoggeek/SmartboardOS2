@@ -38,6 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: android-actions/setup-android@v3
       - name: Set up Android SDK tools
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Build and verify test APK

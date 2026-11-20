@@ -2,6 +2,13 @@
 
 An offline classroom workspace for teachers. Draw on a whiteboard, mark up PDF pages, run a class timer, and keep lesson notes and media on your own device. No account is required.
 
+## Install on phones and tablets
+
+Open the [install page](https://analoggeek.github.io/SmartboardOS2/install.html) for device-specific steps.
+
+- **iPhone and iPad:** Open the classroom in Safari → **Share → Add to Home Screen**. If shown, enable **Open as Web App**. Open the new icon while online and choose **Menu → Home** to confirm **Ready offline**. Then test a cold launch in Airplane Mode. This is a home-screen web app, not an IPA or App Store release. The first setup needs internet and Safari can clear offline data, so export lesson backups.
+- **Android phones and tablets:** The Android build packages the classroom files inside the APK, with no internet permission. A production APK appears on the install page only if the release passed signing verification. If there is no production APK, install the web app via Chrome and confirm **Ready offline** after opening it online. Android, browser and desktop storage are separate.
+
 ## Install on a PC or Mac — no internet needed on the device
 
 Open the [offline installer page](https://analoggeek.github.io/SmartboardOS2/install.html) or download the **full installer** from [GitHub Releases](https://github.com/Analoggeek/SmartboardOS2/releases/latest) on any connected device. You can copy it to a school computer by USB and install it without an internet connection.
@@ -13,7 +20,7 @@ Open the [offline installer page](https://analoggeek.github.io/SmartboardOS2/ins
 | Mac with Apple silicon | `*-mac-arm64.dmg` | Open the disk image and drag SmartBoardOS to Applications. |
 | Mac with Intel processor | `*-mac-x64.dmg` | Open the disk image and drag SmartBoardOS to Applications. |
 
-Each installer includes the app runtime, PDF renderer and worker, icons, and all classroom tools. There is no separate Node.js or browser installation. The current CI builds are not publisher-signed/notarized: Windows SmartScreen or macOS Gatekeeper may warn or block installation on managed devices. Use a release from the official repo, verify it against `SHA256SUMS.txt`, and follow your school's IT policy.
+Each installer includes the app runtime, PDF renderer and worker, icons, and all classroom tools. There is no separate Node.js or browser installation. Check the release notes for Windows Authenticode and Mac Developer ID/notarization status. `SHA256SUMS.txt` verifies file integrity, not publisher identity. If an installer is unsigned or unnotarized, OS or school policy may block it; contact school IT rather than bypassing those checks.
 
 **Updating while online:** open **Settings → App → Check for updates**. SmartBoardOS checks the official release, downloads the matching full installer, verifies its SHA-256 checksum, and saves your work before asking to launch it. On Windows it runs setup; on Mac it opens the `.dmg`, and you replace the app in Applications.
 

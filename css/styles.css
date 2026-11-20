@@ -1659,6 +1659,7 @@ html[data-controls="large"] .board-shortcuts .teaching-shortcut { min-width:44px
 .install-content [hidden] { display: none; }
 .home-status:not([data-offline="ready"]) i { background: #ad8040; }
 @media(max-width:480px) {
-  .workspace-home .home-meta { display: flex; }
+  .workspace-home .home-header { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
+  .workspace-home .home-meta { display:flex; }
   .workspace-home .home-status { font-size: 9px; padding: 4px 6px; gap: 4px; }
 }
