@@ -1,10 +1,11 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.20`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.23`;
 const CORE = [
   './',
   './index.html',
   './install.html',
   './js/install.js',
+  './js/offline.js',
   './js/archive.js',
   './js/class-widget.js',
   './js/board-render.js',
@@ -69,6 +70,14 @@ self.addEventListener('activate', (event) => {
       .filter((key) => key !== VERSION && (key.startsWith(CACHE_PREFIX) || /^sbos-v\d+\.\d+\.\d+$/.test(key)))
       .map((key) => caches.delete(key))))
     .then(() => self.clients.claim()));
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'SMARTBOARDOS_OFFLINE_STATUS' || !event.ports[0]) return;
+  event.waitUntil(caches.open(VERSION).then(cache => cache.keys()).then(keys => {
+    const cached = new Set(keys.map(request => request.url));
+    return [...assets].every(url => cached.has(url));
+  }).catch(() => false).then(ready => event.ports[0].postMessage({ready})));
 });
 
 self.addEventListener('fetch', (event) => {

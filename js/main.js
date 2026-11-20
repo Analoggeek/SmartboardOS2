@@ -1,5 +1,6 @@
 /* SmartBoardOS — system bootstrap */
-import { $, el, toast, pickFiles, clamp } from './utils.js';
+import { $, el, toast, pickFiles, clamp, ANDROID_BUNDLE } from './utils.js';
+import { registerOffline } from './offline.js';
 import { ACCEPT } from './document-import.js';
 import { templates, templatePreview } from './board-templates.js';
 import { movableControls, resetBoardControls } from './control-layout.js';
@@ -16,6 +17,7 @@ import * as RecordingApp from './apps/recording.js';
 import * as SettingsApp from './apps/settings.js';
 
 const DESKTOP = location.protocol === 'sbos:';
+const BUNDLED = DESKTOP || ANDROID_BUNDLE;
 const VERSION = (DESKTOP && new URLSearchParams(location.search).get('version')) || '1.4.0';
 const WALLS = {
   aurora: ['rgba(99,102,241,.26)', 'rgba(168,85,247,.22)', 'rgba(34,211,238,.20)'],
@@ -218,7 +220,7 @@ function renderLaunch() {
     class:'home-template-tile',onclick:()=>launch('whiteboard',{template:id}), 'aria-label':`Add ${templates[id].name} page`
   },templatePreview(id),el('span',{},el('b',{text:templates[id].name}),el('small',{text:templates[id].detail})),el('span',{class:'home-card-arrow',html:icon('chevron-right'),'aria-hidden':'true'}))));
   $('#home-templates').append(el('button',{class:'home-all-templates',html:`<span>Explore all board designs</span>${icon('chevron-right')}`,onclick:()=>boardAction('showTemplates')}));
-  if (!DESKTOP) $('#home-footer-links').append(el('a',{href:'./install.html',text:'Get the offline installer'}));
+  if (!BUNDLED) $('#home-footer-links').append(el('a',{href:'./install.html',text:'Install on another device'}));
   $('#workspace-board-actions').replaceChildren(...boardGroups.map(([heading,items])=>
     el('section',{class:'board-action-group'},el('h3',{text:heading}),el('div',{class:'board-action-list'},...items.map(([symbol,label,action])=>
       el('button',{class:'board-action',type:'button',onclick:() => typeof action === 'function' ? action() : boardAction(action)},
@@ -253,7 +255,7 @@ function paletteItems() {
     { icon: 'note', title: 'Quick note', sub: 'Jot something down instantly', hint: 'Action', run: () => wm.open('notes', { new: true }) },
     { icon: 'users', title: 'Pick a random student', sub: 'Open class tools', hint: 'Action', run: () => wm.open('class') },
     { icon: 'moon', title: 'Toggle theme', sub: 'Switch between dark and light', hint: 'Action', run: () => { const s = settings(); saveSettings({ theme: s.theme === 'light' ? 'dark' : 'light' }); applyTheme(); } },
-    ...(!DESKTOP ? [{ icon: 'download', title: 'Install web app', sub: 'Add the app to your device', hint: 'Action', run: installApp }] : []),
+    ...(!BUNDLED ? [{ icon: 'download', title: 'Install web app', sub: 'Add the app to your device', hint: 'Action', run: installApp }] : []),
     { icon: 'fullscreen', title: 'Fullscreen', sub: 'Toggle fullscreen mode', hint: 'Action', run: () => toggleFullscreen() },
     { icon: 'settings', title: 'Settings', sub: 'Appearance, classroom & data', hint: 'Action', run: () => wm.open('settings') },
   ];
@@ -361,10 +363,10 @@ function installApp() {
       installPrompt = null;
       $('#btn-install').hidden = true;
     });
-  } else if (window.matchMedia('(display-mode: standalone)').matches) {
+  } else if ((window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true)) {
     toast('Already installed — you are running the app', 'info');
   } else {
-    toast('Use your browser menu → "Install app" / "Add to Home screen"', 'info', 5000);
+    location.assign('./install.html#phone');
   }
 }
 
@@ -438,20 +440,19 @@ async function boot() {
   $('#btn-install').onclick = installApp;
   document.addEventListener('pointerdown', e => { if (!appMenu.hidden && !appMenu.contains(e.target) && !appToggle.contains(e.target)) closeAppMenu(); });
   window.addEventListener('keydown', onGlobalKey);
-  if (!DESKTOP) window.addEventListener('online', () => toast('Back online', 'ok', 1600));
-  if (!DESKTOP) window.addEventListener('offline', () => toast('Offline — the app still works', 'info', 2200));
-
-  // PWA — register right away so the app is installable + offline-ready
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((registration) => {
-      const notify = () => {
-        if (registration.waiting && navigator.serviceWorker.controller) {
-          toast('Web update ready. Save your work, then close all SmartBoardOS tabs or windows and reopen.', 'info', 10000);
-        }
-      };
-      notify();
-      registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', notify));
-    }).catch((e) => console.warn('SW failed', e));
+  const status = ready => {
+    $('#home-offline-status').textContent = ready ? 'Ready offline' : 'Offline not ready';
+    $('#home-offline-status').parentElement.dataset.offline = ready ? 'ready' : 'unavailable';
+  };
+  if (BUNDLED) status(true);
+  else {
+    window.addEventListener('online', () => toast('Back online', 'ok', 1600));
+    window.addEventListener('offline', () => toast('Internet disconnected', 'info', 2200));
+    void registerOffline({status,
+      onWaiting: () => toast('Web update ready. Save your work, then close all SmartBoardOS tabs or windows and reopen.', 'info', 10000),
+      onError: error => console.warn('Offline setup failed', error),
+    });
+    $('#btn-install').hidden = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
   }
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();

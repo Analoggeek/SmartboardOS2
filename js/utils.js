@@ -59,13 +59,35 @@ export function fmtDateLong(date) {
   return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+export const ANDROID_BUNDLE = globalThis.location?.hostname === 'appassets.androidplatform.net' && globalThis.window?.smartboardAndroid?.isBundled?.() === true;
+
+async function saveAndroidBlob(blob, filename) {
+  const bridge = window.smartboardAndroid;
+  if (!bridge.begin(blob.size)) { toast('Could not start export. Save one file at a time (128 MB limit).', 'warn'); return; }
+  try {
+    for (let i = 0; i < blob.size; i += 48_000) {
+      const chunk = new Uint8Array(await blob.slice(i, i + 48_000).arrayBuffer());
+      if (!bridge.append(btoa(String.fromCharCode(...chunk)))) throw Error('Could not write export');
+    }
+    if (!bridge.finish(filename, blob.type, blob.size)) throw Error('Could not save export');
+  } catch {
+    bridge.cancel(); toast('Could not save export', 'err');
+  }
+}
+
 export function downloadURL(url, filename) {
+  if (ANDROID_BUNDLE && /^(blob|data):/.test(url)) {
+    fetch(url).then(response => response.blob()).then(blob => saveAndroidBlob(blob, filename))
+      .catch(() => toast('Could not open file for export', 'err'));
+    return;
+  }
   const a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.append(a); a.click(); a.remove();
 }
 
 export function downloadBlob(blob, filename) {
+  if (ANDROID_BUNDLE) { void saveAndroidBlob(blob, filename); return; }
   const url = URL.createObjectURL(blob);
   downloadURL(url, filename);
   setTimeout(() => URL.revokeObjectURL(url), 4000);
