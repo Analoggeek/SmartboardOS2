@@ -1491,7 +1491,7 @@ body:not(.teaching-board) .apps-grip { display:none; }
 .workspace-menu-foot .btn { min-height:34px; }
 .board-workspace .wb-stage > .clean-toolbox {
   position:absolute; inset:auto auto 8px 8px; z-index:14; width:max-content; max-width:calc(100% - 16px);
-  height:auto; min-height:42px; padding:4px; gap:2px; flex-wrap:wrap; justify-content:center; overflow:visible;
+  height:max-content; min-height:42px; padding:4px; gap:2px; flex-wrap:wrap; justify-content:center; overflow:visible;
   border:1px solid var(--border-strong); border-radius:12px; background:var(--surface-solid); box-shadow:var(--shadow-sm);
 }
 .board-workspace .wb-stage > .clean-toolbox > * { flex-shrink:0; }
