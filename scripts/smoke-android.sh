@@ -8,6 +8,8 @@ adb shell svc data disable
 [[ $(adb shell settings get global airplane_mode_on | tr -d '\r') == 1 ]]
 apks=(dist/*-android-QA.apk)
 adb install "${apks[0]}"
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell am start -W -n "$pkg/com.analoggeek.smartboardos.MainActivity"
 pid=$(adb shell pidof -s "$pkg" | tr -d '\r')
 [[ $pid =~ ^[0-9]+$ ]]
