@@ -91,11 +91,34 @@ export function mount({ root }) {
 
     /* app */
     const group3 = el('div', { class: 'set-group' }, el('h4', { text: 'App' }));
-    const installBtn = el('button', { class: 'btn', html: `${icon('download')}<span>Install</span>`, onclick: () => window.__sbos.install() });
-    group3.append(row('Install on device', 'Run SmartBoardOS fullscreen like a native app', installBtn));
-    group3.append(row('Offline ready', 'Once installed, it works without internet', el('span', {
-      style: { fontSize: '11.5px', color: '#22c55e', fontWeight: '700' }, text: navigator.onLine ? 'Ready' : 'Offline mode',
-    })));
+    if (window.__sbos.desktop) {
+      const status = el('p', { class: 'update-status', role: 'status' });
+      const bridge = window.smartboardUpdates;
+      const button = el('button', { class: 'btn', html: `${icon('download')}<span>Check for updates</span>`, onclick: async () => {
+        button.disabled = true;
+        status.textContent = 'Checking and downloading the full installer if an update is available…';
+        try {
+          const result = await bridge.prepare();
+          if (result.status === 'ready') {
+            status.textContent = `Version ${result.version} downloaded. Saving your work…`;
+            await window.__sbos.saveWork();
+            const launch = await bridge.install();
+            status.textContent = ({ opened: 'Update installer opened.', later: 'Installer ready. Check again when you want to install.' })[launch.status]
+              || 'Could not open the installer.';
+          } else {
+            status.textContent = ({ current: 'You have the latest version.', busy: 'An update check is already running.',
+              unavailable: 'No published installer found. Update checks only work in the installed desktop app.' })[result.status]
+              || 'Could not download a verified update. Check your internet connection and try again.';
+          }
+        } catch { status.textContent = 'Could not complete the update. Your current app is still installed.'; }
+        finally { button.disabled = false; }
+      } });
+      button.disabled = !bridge;
+      group3.append(row('Desktop updates', 'Connect to the internet to download the latest full offline installer.', button), status);
+    } else {
+      const installBtn = el('button', { class: 'btn', html: `${icon('download')}<span>Install</span>`, onclick: () => window.__sbos.install() });
+      group3.append(row('Install web app', 'After its first online load, the web app also works offline.', installBtn));
+    }
 
     /* data */
     const group4 = el('div', { class: 'set-group' }, el('h4', { text: 'Data' }));
