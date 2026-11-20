@@ -67,8 +67,12 @@ const APPS = [
     color: '#0891b2', soft: 'rgba(8,145,178,.18)', width: 1000, height: 735, mount: lazyApp(() => import('./apps/maps.js')),
   },
   {
-    id: 'lab', name: 'Smart Lab', tagline: 'Physics, Chemistry & Biology', icon: 'flask',
+    id: 'lab', name: 'Smart Lab', tagline: 'Science and mathematics', icon: 'flask',
     color: '#14b8a6', soft: 'rgba(20,184,166,.18)', width: 1100, height: 775, mount: lazyApp(() => import('./apps/lab.js')),
+  },
+  {
+    id: 'lessons', name: 'Lesson Library', tagline: 'Lesson packs & recovery', icon: 'folder',
+    color: '#f59e0b', soft: 'rgba(245,158,11,.16)', width: 1060, height: 760, mount: lazyApp(() => import('./apps/lessons.js')),
   },
   {
     id: 'recording', name: 'Recording Studio', tagline: 'Screen, camera and microphone', icon: 'camera',
@@ -79,7 +83,7 @@ const APPS = [
     color: '#64748b', soft: 'rgba(100,116,139,.18)', width: 640, height: 700, mount: SettingsApp.mount,
   },
 ];
-const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'lab', 'recording', 'settings'];
+const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'lab', 'lessons', 'recording', 'settings'];
 
 /* =========================================================
    system
@@ -95,6 +99,8 @@ function applyTheme() {
   const theme = s.theme === 'auto' ? (prefersLight ? 'light' : 'dark') : s.theme;
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.accent = s.accent || 'indigo';
+  document.documentElement.dataset.contrast = s.contrast ? 'high' : 'normal';
+  document.documentElement.dataset.controls = s.largeControls ? 'large' : 'normal';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', theme === 'light' ? '#eef1f8' : '#0b1020');
   $('#btn-theme').innerHTML = `<span class="ic">${icon(theme === 'light' ? 'sun' : 'moon')}</span>`;
@@ -374,10 +380,12 @@ async function exportBoardPNG() {
    fullscreen / install
    ========================================================= */
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.().catch(() => toast('Fullscreen not allowed here', 'warn'));
+  const board = wm.windows.get('whiteboard');
+  if (board?.instance?.togglePresentation) {
+    wm.open('whiteboard');
+    board.instance.togglePresentation();
   } else {
-    document.exitFullscreen?.();
+    wm.open('whiteboard', { fullscreen: true });
   }
 }
 
@@ -403,6 +411,7 @@ function installApp() {
 function onGlobalKey(e) {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   const mod = e.ctrlKey || e.metaKey;
+  if (document.querySelector('.wb-presenting') && (mod || e.key.toLowerCase() !== 'f')) return;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.backdrop.hidden ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape' && !palette.backdrop.hidden) { closePalette(); return; }
   if (typing) return;

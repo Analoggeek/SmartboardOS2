@@ -1,5 +1,5 @@
 import indiaPack from '../map-india.js';
-import { clamp, el } from '../utils.js';
+import { clamp, el, toast } from '../utils.js';
 
 const regions = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania', 'Antarctica'];
 const views = { Political: 'Country and covered state boundaries', Plain: 'Neutral base map', Outline: 'Printable boundary exercise',
@@ -50,9 +50,13 @@ export function mount({ root, api }) {
   const legend = el('div', { class: 'atlas-legend', 'aria-label': 'Map legend' });
   const country = el('select', { class: 'field', 'aria-label': 'Country map' }, option('', 'Region overview'));
   const search = el('input', { class: 'field', type: 'search', placeholder: 'Find a country…', 'aria-label': 'Filter countries' });
+  const cityQuery = el('input', { class: 'field', type: 'search', placeholder: 'Find a city…', 'aria-label': 'Find a city' });
+  const cityResults = el('div', { class: 'atlas-city-results', hidden: true });
+  const cityPanel = el('div', { class: 'atlas-city' }, cityQuery, cityResults);
+  const printBtn = el('button', { class: 'btn', text: 'Blank map PDF', onclick: printable });
   const status = el('p', { class: 'atlas-status', text: 'Loading bundled maps…', role: 'status' });
   const title = el('h2', { text: 'Map Atlas' });
-  const reset = el('button', { class: 'btn', text: 'Reset view', onclick: () => { camera = { x: 0, y: 0, zoom: 1 }; queue(); } });
+  const reset = el('button', { class: 'btn', text: 'Reset view', onclick: () => { cityPin = null; cityQuery.value = ''; camera = { x: 0, y: 0, zoom: 1 }; queue(); } });
   const india = el('button', { class: 'btn atlas-shortcut', text: 'India', onclick: () => quick('Asia', 'IND') });
   const asia = el('button', { class: 'btn atlas-shortcut', text: 'Asia', onclick: () => quick('Asia') });
   const zoomOut = el('button', { class: 'btn', 'aria-label': 'Zoom out', text: '−', onclick: () => zoom(1/1.18) });
@@ -64,11 +68,11 @@ export function mount({ root, api }) {
   } });
   root.append(el('div', { class: 'app' }, el('div', { class: 'settings map-studio' },
     el('header', { class: 'atlas-heading' }, el('div', {}, el('div', { class: 'hero-eyebrow', text: 'Offline classroom atlas' }), title), el('div', { class: 'atlas-shortcuts' }, india, asia)),
-    el('div', { class: 'map-controls atlas-location' }, region, search, country), layerBar,
-    el('div', { class: 'map-controls atlas-footer' }, status, el('div', { class: 'atlas-zoom' }, zoomOut, zoomIn), reset, insert),
+    el('div', { class: 'map-controls atlas-location' }, region, search, country, cityPanel), layerBar,
+    el('div', { class: 'map-controls atlas-footer' }, status, el('div', { class: 'atlas-zoom' }, zoomOut, zoomIn), reset, printBtn, insert),
     el('div', { class: 'atlas-chart' }, canvas, legend),
     el('p', { class: 'atlas-credit', text: 'Natural Earth · World 1:50m; India detail 1:10m (India viewpoint). Illustrative teaching maps, not official boundaries. Drag to pan; scroll or use + / − to zoom.' }))));
-  let data, subdivisions, physical;
+  let data, subdivisions, physical, cityPin, cityRequest = 0;
   let camera = { x: 0, y: 0, zoom: 1 };
   let frame = 0, closed = false, layerLoading = false, layerError = false, loadId = 0;
   let drag, projection;
@@ -89,7 +93,7 @@ export function mount({ root, api }) {
     if (filtered.some(row => row[3] === value)) country.value = value;
   }
   function quick(area, id = '') { search.value = ''; region.value = area; populate(id); selectionChanged(); }
-  function selectionChanged() { camera = { x: 0, y: 0, zoom: 1 }; chooseLayer(); }
+  function selectionChanged() { cityPin = null; camera = { x: 0, y: 0, zoom: 1 }; chooseLayer(); }
   async function chooseLayer() {
     const request = ++loadId; layerError = false;
     const style = selectedLayer;
@@ -108,6 +112,48 @@ export function mount({ root, api }) {
     } finally {
       if (request === loadId && !closed) { layerLoading = false; insert.disabled = !data; queue(); }
     }
+  }
+
+  function printable() {
+    if (!data || !window.jspdf?.jsPDF) return;
+    const previous = selectedLayer, oldPin = cityPin, oldCamera = camera;
+    try {
+      selectedLayer = 'Outline'; cityPin = null; camera = { x: 0, y: 0, zoom: 1 }; draw();
+      const landscape = canvas.width >= canvas.height;
+      const pdf = new window.jspdf.jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit:'pt', compress: true });
+      const { width:w,height:h } = pdf.internal.pageSize;
+      const k = Math.min((w-48)/canvas.width, (h-104)/canvas.height);
+      pdf.setFontSize(12); pdf.text('Name: _____________________    Class: __________    Date: __________', 24, 36);
+      pdf.addImage(canvas,'PNG',(w-canvas.width*k)/2,49,canvas.width*k,canvas.height*k);
+      pdf.text('Label the places or features assigned by your teacher.', 24,h-24);
+      pdf.save(`${label()}-outline.pdf`);
+    } catch (e) { toast('Could not make the worksheet PDF.', 'err'); }
+    finally { selectedLayer = previous; cityPin = oldPin; camera = oldCamera; queue(); }
+  }
+
+  async function findCities() {
+    const request = ++cityRequest;
+    const query = cityQuery.value.toLowerCase().trim();
+    if (query.length < 2) { cityResults.hidden = true; return; }
+    try {
+      const places = await extended('cities', () => import('../map-cities.js'));
+      if (closed || request !== cityRequest) return;
+      const found = places.filter(([name]) => name.toLowerCase().includes(query))
+        .sort((a,b) => Number(b[0].toLowerCase().startsWith(query)) - Number(a[0].toLowerCase().startsWith(query))).slice(0, 8);
+      cityResults.replaceChildren(...found.map(city => el('button', { class: 'mini-btn', text: `${city[0]}, ${city[1]}`, onclick: () => selectCity(city) })));
+      if (!found.length) cityResults.append(el('small', { text: 'No city in this offline dataset.' }));
+      cityResults.hidden = false;
+    } catch { if (!closed && request === cityRequest) { cityResults.hidden = false; cityResults.textContent = 'City data unavailable.'; } }
+  }
+  function selectCity(city) {
+    if (!data) return;
+    const item = data.find(x => x[3] === city[2]);
+    quick(item?.[1] || 'World', item?.[3]);
+    const [,,,lon,lat] = city;
+    const b = city[2] === 'IND' ? shape(indiaPack.outline).fit : item ? shape(item[2]).fit : bounds.World;
+    const mid = (b[0]+b[2])/2, adjusted = lon + 360*Math.round((mid-lon)/360);
+    camera = { x: adjusted-mid, y: lat-(b[1]+b[3])/2, zoom: item ? 1.7 : 5 };
+    cityPin = city; cityQuery.value = city[0]; cityResults.hidden = true; cityQuery.focus(); queue();
   }
 
   function draw() {
@@ -225,6 +271,12 @@ export function mount({ root, api }) {
         ctx.beginPath(); ctx.moveTo(24,y); ctx.lineTo(width-24,y); ctx.stroke(); ctx.fillText(`${Math.abs(lat)}°${lat < 0 ? 'S' : lat ? 'N' : ''}`, 28,y-4);
       }
     }
+    if (cityPin && style !== 'Outline') {
+      const [name,,,lon,lat] = cityPin;
+      const x = originX+(lon+360*Math.round((cx-lon)/360))*xScale, y = originY-lat*yScale;
+      ctx.beginPath(); ctx.arc(x,y,5,0,2*Math.PI); ctx.fillStyle = '#bf2860'; ctx.fill();
+      labels.push({ name, x, y: y-19, priority:-1, colour:'#9e2352' });
+    }
     ctx.font = '600 15px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const placed = [];
     const shownNames = new Set();
@@ -239,6 +291,14 @@ export function mount({ root, api }) {
     }
     ctx.restore();
     ctx.fillStyle = '#142944'; ctx.font = 'bold 26px system-ui'; ctx.fillText(`${label()} · ${style}`, 24,36);
+    // Scale varies by latitude in this projection; show an approximate bar at map centre.
+    const kmPerPx = 111.32 * Math.max(.01, Math.cos(clamp(cy, -89, 89)*Math.PI/180))/xScale;
+    const wanted = 120*kmPerPx, step = Math.pow(10, Math.floor(Math.log10(wanted)));
+    const length = [5,2,1].find(n => n*step <= wanted)*step;
+    const displayKm = length < 1 ? `${Math.round(length*1000)} m` : `${length} km`;
+    ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#31455f';
+    ctx.moveTo(24,height-31); ctx.lineTo(24,height-38); ctx.lineTo(24+length/kmPerPx,height-38); ctx.lineTo(24+length/kmPerPx,height-31); ctx.stroke();
+    ctx.font = '13px system-ui'; ctx.fillText(`≈ ${displayKm}`, 30+length/kmPerPx,height-32);
     ctx.font = '15px system-ui'; ctx.fillText(localIndia ? 'Natural Earth · India viewpoint · teaching map' : 'Natural Earth · teaching map',24,height-18);
     if (!compact) { ctx.textAlign = 'right'; ctx.fillText(views[style],width-24,height-18); ctx.textAlign = 'start'; }
     const extra = target && political && subdivisions && !subdivisions.some(x => x[0] === target[3]) ? ' · No subdivisions in the bundled source' : '';
@@ -248,6 +308,12 @@ export function mount({ root, api }) {
     canvas.dataset.layer = style; canvas.dataset.place = target?.[3] || region.value;
   }
 
+  cityQuery.addEventListener('input', findCities);
+  cityQuery.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !cityResults.hidden) { e.preventDefault(); cityResults.querySelector('button')?.click(); }
+    if (e.key === 'Escape') { cityRequest++; cityResults.hidden = true; }
+  });
+  cityPanel.addEventListener('focusout', e => { if (!cityPanel.contains(e.relatedTarget)) { cityRequest++; cityResults.hidden = true; } });
   region.onchange = () => { search.value = ''; populate(''); selectionChanged(); };
   country.onchange = selectionChanged;
   search.oninput = () => { const old = country.value; populate(old); if (country.value !== old) selectionChanged(); };

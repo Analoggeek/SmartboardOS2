@@ -1,5 +1,5 @@
 import { createChromaRenderer } from '../chroma.js';
-import { el } from '../utils.js';
+import { el, downloadBlob, fmtDuration } from '../utils.js';
 
 const stopTracks = (stream) => stream?.getTracks().forEach(track => track.stop());
 const resolutions = [[1280, 720], [1920, 1080], [2560, 1440], [3840, 2160]];
@@ -22,6 +22,7 @@ export function mount({ root }) {
   const frameRate = select([[15, '15 fps · low load'], [24, '24 fps · balanced'], [30, '30 fps · smooth']]);
   frameRate.value = '24';
   const mic = el('input', { type: 'checkbox' });
+  const systemAudio = el('input', { type: 'checkbox' });
   const inset = el('input', { type: 'checkbox' });
   const followCamera = el('input', { type: 'checkbox' });
   const key = el('input', { type: 'checkbox' });
@@ -48,7 +49,7 @@ export function mount({ root }) {
   };
   const overlay = el('div', { class: 'studio-camera-overlay', hidden: true, 'aria-hidden': 'true' }, preview);
   const placeOverlays = () => {
-    const layer = document.fullscreenElement || document.querySelector('.wb-immersive:not(.min):not(.closing)') || document.body;
+    const layer = document.fullscreenElement || document.querySelector('.wb-presenting:not(.min):not(.closing)') || document.body;
     layer.append(overlay);
     if (indicator) layer.append(indicator);
   };
@@ -62,11 +63,13 @@ export function mount({ root }) {
   let generation = 0;
   let active = false;
   let indicator;
-  let queueDepth = 0;
+  let queueDepth = 0, startedAt = 0, pausedAt = 0, pausedTotal = 0, marks = [];
+  const liveRecorder = () => recorder && recorder.state !== 'inactive';
+  const stopRecording = () => { if (liveRecorder()) recorder.stop(); };
   placeOverlays();
   document.addEventListener('fullscreenchange', placeOverlays);
   document.addEventListener('sbos:presentation', placeOverlays);
-  const lockInputs = locked => [mode, size, frameRate, mic, inset, followCamera, key, device].forEach(input => { input.disabled = locked; });
+  const lockInputs = locked => [mode, size, frameRate, mic, systemAudio, inset, followCamera, key, device].forEach(input => { input.disabled = locked; });
 
   async function refreshDevices(auto = false) {
     const cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.deviceId);
@@ -151,7 +154,35 @@ export function mount({ root }) {
   }
 
   const begin = el('button', { class: 'btn primary', text: 'Start recording', onclick: start });
-  const stop = el('button', { class: 'btn danger', text: 'Stop recording', onclick: () => recorder?.state === 'recording' && recorder.stop() });
+  const stop = el('button', { class: 'btn danger', text: 'Stop recording', onclick: stopRecording });
+  const pause = el('button', { class: 'btn', text: 'Pause', disabled: '', onclick: () => {
+    if (recorder?.state === 'recording') {
+      recorder.pause(); pausedAt = performance.now(); pause.textContent = 'Resume';
+      status.textContent = 'Recording paused. Camera preview may still be visible.';
+      if (indicator) indicator.textContent = 'Ⅱ Paused · Stop';
+    } else if (recorder?.state === 'paused') {
+      recorder.resume(); pausedTotal += performance.now() - pausedAt; pausedAt = 0;
+      pause.textContent = 'Pause'; status.textContent = 'Recording…';
+      if (indicator) indicator.textContent = '● Recording · Stop';
+    }
+  } });
+  const markText = el('input', { class: 'field', 'aria-label': 'Chapter name', placeholder: 'Chapter name (optional)', maxlength: 100 });
+  const marker = el('button', { class: 'btn', text: 'Mark chapter', disabled: '', onclick: () => {
+    if (!liveRecorder()) return;
+    const time = Math.max(0, Math.round((pausedAt || performance.now()) - startedAt - pausedTotal));
+    if (marks.length >= 150 || marks.at(-1)?.time === time) return;
+    marks.push({ time, name: markText.value.trim() || `Chapter ${marks.length + 1}` }); markText.value = '';
+    markStatus.textContent = `Chapter ${marks.length} · ${fmtDuration(time)}`;
+  } });
+  const stamp = ms => `${String(Math.floor(ms / 3600000)).padStart(2,'0')}:${String(Math.floor(ms / 60000)%60).padStart(2,'0')}:${String(Math.floor(ms / 1000)%60).padStart(2,'0')}.${String(ms % 1000).padStart(3,'0')}`;
+  const markStatus = el('span', { role: 'status' });
+  let savedMarks;
+  const chapters = el('button', { class: 'btn', text: 'Download chapters (.vtt)', disabled: '', onclick: () => {
+    if (!savedMarks) return;
+    const { name, list, end } = savedMarks;
+    const cues = list.map((item,i) => `${stamp(item.time)} --> ${stamp(Math.max(item.time + 1, list[i+1]?.time ?? end))}\n${item.name.replace(/-->|[<>\r\n]/g,' ')}`).join('\n\n');
+    downloadBlob(new Blob([`WEBVTT\n\n${cues}\n`], { type: 'text/vtt' }), name.replace(/\.webm$/i,'') + '-chapters.vtt');
+  } });
   stop.disabled = true;
   const previewButton = el('button', { class: 'btn', text: 'Start / switch camera preview', onclick: () => startCamera() });
   const stopButton = el('button', { class: 'btn', text: 'Turn off camera', onclick: () => { followCamera.checked = false; stopPreview(); } });
@@ -170,13 +201,17 @@ export function mount({ root }) {
     const fps = Number(frameRate.value);
     const streams = [];
     let id;
-    let output;
+    let output, audioMixer;
+    const audioTracks = [];
+    const loopback = kind === 'screen' && library.systemAudioSupported && systemAudio.checked;
     status.textContent = 'Preparing recording…';
     try {
       if (!window.MediaRecorder) throw new Error('Recording is not supported on this device.');
       if (kind === 'screen') {
-        const screen = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: fps, max: fps } }, audio: false });
+        const screen = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: fps, max: fps } }, audio: loopback });
         streams.push(screen);
+        audioTracks.push(...screen.getAudioTracks());
+        if (loopback && !audioTracks.length) throw Error('System audio was requested but is unavailable. Turn it off or check your device.');
         output = new MediaStream(screen.getVideoTracks());
         if (inset.checked && !camera && !await startCamera()) throw new Error('Camera inset is enabled, but no camera is available.');
         if (!inset.checked) stopPreview();
@@ -190,7 +225,18 @@ export function mount({ root }) {
       if (kind === 'audio' || mic.checked) {
         const audio = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         streams.push(audio);
-        audio.getAudioTracks().forEach(track => output.addTrack(track));
+        audioTracks.push(...audio.getAudioTracks());
+      }
+      if (audioTracks.length === 1) output.addTrack(audioTracks[0]);
+      else if (audioTracks.length > 1) {
+        audioMixer = new AudioContext();
+        const destination = audioMixer.createMediaStreamDestination();
+        for (const track of audioTracks) {
+          const gain = audioMixer.createGain(); gain.gain.value = .65;
+          audioMixer.createMediaStreamSource(new MediaStream([track])).connect(gain).connect(destination);
+        }
+        await audioMixer.resume(); streams.push(destination.stream);
+        output.addTrack(destination.stream.getAudioTracks()[0]);
       }
       if (closed) throw new Error('Recording Studio was closed.');
       const mimeType = (kind === 'audio' ? ['audio/webm;codecs=opus', 'audio/webm'] : ['video/webm;codecs=vp8,opus', 'video/webm']).find(x => MediaRecorder.isTypeSupported(x));
@@ -202,33 +248,38 @@ export function mount({ root }) {
       let error;
       recorder.ondataavailable = ({ data }) => {
         if (!data.size || error) return;
-        if (queueDepth >= 8) { error = new Error('Disk is too slow for this resolution'); if (recorder.state === 'recording') recorder.stop(); return; }
+        if (queueDepth >= 8) { error = new Error('Disk is too slow for this resolution'); stopRecording(); return; }
         queueDepth++;
         writes = writes.then(async () => {
           if (!error) await library.append(id, new Uint8Array(await data.arrayBuffer()));
-        }).catch(e => { error = e; if (recorder.state === 'recording') recorder.stop(); }).finally(() => queueDepth--);
+        }).catch(e => { error = e; stopRecording(); }).finally(() => queueDepth--);
       };
       recorder.onerror = () => { error = new Error('Camera or encoder stopped'); };
       stopped = new Promise(resolve => {
         recorder.onstop = async () => {
-          streams.forEach(stopTracks); stopPreview(); indicator?.remove();
+          pause.disabled = marker.disabled = true;
+          const end = Math.round((pausedAt || performance.now()) - startedAt - pausedTotal);
+          streams.forEach(stopTracks); audioMixer?.close().catch(() => {}); stopPreview(); indicator?.remove();
           try {
             await writes;
             const name = await library.finish(id);
+            if (name && marks.length) { savedMarks = {name,list:marks,end}; chapters.disabled = false; }
             status.textContent = error ? `Recording stopped early. ${name ? `Recovered file: ${name}` : 'No file was saved.'}` : name ? `Saved · ${name}` : 'Nothing was recorded.';
           } catch { status.textContent = 'Could not finish saving. Check free disk space and the Recordings folder.'; }
           active = false; lockInputs(false); stop.disabled = true; begin.disabled = previewButton.disabled = stopButton.disabled = false; resolve();
         };
       });
-      output.getTracks().forEach(track => track.addEventListener('ended', () => recorder?.state === 'recording' && recorder.stop(), { once: true }));
+      new Set([...output.getTracks(), ...audioTracks]).forEach(track => track.addEventListener('ended', stopRecording, { once: true }));
       recorder.start(1000);
-      active = true; stop.disabled = false;
-      indicator = el('button', { class: 'recording-indicator', text: '● Recording · Stop', onclick: () => recorder.state === 'recording' && recorder.stop() });
+      startedAt = performance.now(); pausedAt = pausedTotal = 0; marks = []; markStatus.textContent = '';
+      pause.textContent = 'Pause';
+      active = true; stop.disabled = pause.disabled = marker.disabled = false;
+      indicator = el('button', { class: 'recording-indicator', text: '● Recording · Stop', onclick: stopRecording });
       placeOverlays();
       const actual = output.getVideoTracks()[0]?.getSettings();
-      status.textContent = `Recording${actual?.width ? ` · ${actual.width} × ${actual.height}` : ''}…`;
+      status.textContent = `Recording${actual?.width ? ` · ${actual.width} × ${actual.height}` : ''}${loopback ? ' · system audio on' : ''}…`;
     } catch (e) {
-      streams.forEach(stopTracks); stopPreview();
+      streams.forEach(stopTracks); audioMixer?.close().catch(() => {}); stopPreview();
       if (id) await library.finish(id).catch(() => {});
       status.textContent = `Could not start recording. ${e.message}`;
       lockInputs(false);
@@ -240,19 +291,20 @@ export function mount({ root }) {
   navigator.mediaDevices?.addEventListener('devicechange', onDevice);
   refreshDevices().catch(() => {});
   host.append(el('p', { text: 'Record this app, a camera, or just your microphone. Resolution depends on the source and hardware. Video uses WebM; no upload.' }),
-    row('Capture source', mode), row('Maximum recording resolution', size), row('Frame rate', frameRate), row('Include microphone', mic), row('Include camera inset in window recording', inset),
+    row('Capture source', mode), row('Maximum recording resolution', size), row('Frame rate', frameRate), row('Include microphone', mic), library.systemAudioSupported ? row('Include computer playback audio in window recording (Windows)', systemAudio) : null, row('Include camera inset in window recording', inset),
     row('Camera device', device), row('Enable auto-preview of new cameras (starts a camera preview now)', followCamera),
     row('Chroma key · requires a solid backdrop', key), row('Backdrop colour', keyColor), row('Key tolerance', tolerance),
     el('p', { text: 'A phone must already appear as a webcam on your computer. Keyed camera-only video runs at a lower resolution for responsiveness; use window mode for a keyed inset.' }),
-    el('div', { class: 'hero-actions' }, previewButton, stopButton, begin, stop, folder), status);
+    el('div', { class: 'hero-actions' }, previewButton, stopButton, begin, pause, stop, folder),
+    el('div', { class: 'hero-actions studio-chapters' }, markText, marker, chapters, markStatus), status);
   return {
     save: () => {
-      if (recorder?.state === 'recording') recorder.stop();
+      stopRecording();
       return active ? stopped : undefined;
     },
     onClose: () => {
       closed = true;
-      if (recorder?.state === 'recording') recorder.stop();
+      stopRecording();
       stopPreview(); chroma?.dispose(); overlay.remove();
       document.removeEventListener('fullscreenchange', placeOverlays);
       document.removeEventListener('sbos:presentation', placeOverlays);

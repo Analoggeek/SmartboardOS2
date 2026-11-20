@@ -1,8 +1,10 @@
 /* PDF viewer / presenter — powered by pdf.js (bundled locally) */
-import { el, toast, pickFiles, clamp, relTime, debounce } from '../utils.js';
+import { el, toast, pickFiles, clamp, relTime, debounce, downloadBlob } from '../utils.js';
 import { icon } from '../icons.js';
 import { idb } from '../db.js';
 import { ACCEPT, isDocument, toPdf } from '../document-import.js';
+import { paintBoardObject } from '../board-render.js';
+import { EMOJI_SVG } from '../emoji-data.js';
 import { mount as mountBoard } from './whiteboard.js';
 
 const pdfjsLib = window.pdfjsLib;
@@ -19,7 +21,7 @@ export function mount({ root, params, api }) {
   let renderTask = null;
   let docName = '';
   let annotationSession;
-  let closed = false;
+  let closed = false, exporting = false, annotationNav = false;
 
   /* ---------- dom ---------- */
   const pageCanvas = el('canvas', { class: 'pdf-page-canvas' });
@@ -43,13 +45,16 @@ export function mount({ root, params, api }) {
 
   const annotateBtn = el('button', { class: 'tool-btn ghost', html: `${icon('pen')}<span>Write on PDF</span>`,
     title: 'Write on current PDF page', onclick: openAnnotation });
+  const exportBtn = el('button', { class: 'tool-btn ghost', html: `${icon('download')}<span>Export with ink</span>`, title: 'Export all pages as an annotated PDF', onclick: exportAnnotated });
   const annotateBar = el('div', { class: 'app-toolbar pdf-annotation-bar' },
     el('button', { class: 'tool-btn ghost', html: `${icon('chevron-left')}<span>Back to reading</span>`, onclick: closeAnnotation }),
+    el('button', { class: 'tool-btn', title: 'Previous annotation page', 'aria-label': 'Previous annotation page', html: icon('chevron-left'), onclick: () => stepAnnotation(-1) }),
+    el('button', { class: 'tool-btn', title: 'Next annotation page', 'aria-label': 'Next annotation page', html: icon('chevron-right'), onclick: () => stepAnnotation(1) }),
     el('span', { class: 'pdf-annotation-label', text: '' }));
   const annotateHost = el('div', { class: 'pdf-annotation-host' });
   const annotatePanel = el('div', { class: 'pdf-annotation-panel', hidden: true }, annotateBar, annotateHost);
   const toolbar = el('div', { class: 'app-toolbar pdf-toolbar' },
-    annotateBtn,
+    annotateBtn, exportBtn,
     el('button', { class: 'tool-btn', html: icon('folder'), title: 'Open document', onclick: openPicker }),
     el('div', { class: 'sep' }),
     el('button', { class: 'tool-btn', html: icon('chevron-left'), title: 'Previous page', onclick: () => go(pageNum - 1) }),
@@ -195,16 +200,87 @@ export function mount({ root, params, api }) {
   }
 
   /* ---------- actions ---------- */
-  async function pageImage(source, n, angle) {
+  async function pageRaster(source, n, angle, limit = 2400) {
     const page = await source.getPage(n);
     const base = page.getViewport({ scale: 1, rotation: angle });
-    const vp = page.getViewport({ scale: Math.min(2, 2400 / Math.max(base.width, base.height)), rotation: angle });
+    const vp = page.getViewport({ scale: Math.min(2, limit / Math.max(base.width, base.height)), rotation: angle });
     const c = el('canvas');
     c.width = Math.max(1, Math.floor(vp.width));
     c.height = Math.max(1, Math.floor(vp.height));
     const cx = c.getContext('2d');
     await page.render({ canvasContext: cx, viewport: vp, background: '#ffffff' }).promise;
-    return { src: c.toDataURL('image/jpeg', 0.94), x: 0, y: 0, w: c.width, h: c.height };
+    return { canvas: c, base };
+  }
+  async function pageImage(source, n, angle) {
+    const { canvas } = await pageRaster(source, n, angle);
+    return { src: canvas.toDataURL('image/jpeg', 0.94), x: 0, y: 0, w: canvas.width, h: canvas.height };
+  }
+  const inkKey = (source, n, angle) => `pdf-ink:${source.fingerprints[0]}:${n}:${angle}`;
+  async function stepAnnotation(delta) {
+    if (!doc || !annotationSession?.board || annotationNav) return;
+    const next = clamp(pageNum + delta, 1, doc.numPages);
+    if (next === pageNum) return;
+    annotationNav = true;
+    try {
+      if (!await annotationSession.board.save()) { toast('Could not save this page’s ink.', 'err'); return; }
+      await closeAnnotation();
+      pageNum = next;
+      await openAnnotation();
+    } finally { annotationNav = false; }
+  }
+
+  async function exportAnnotated() {
+    if (!doc || exporting) return;
+    const source = doc, preferredRotation = rotation;
+    if (source.numPages > 120) { toast('Export supports up to 120 pages. Split the source PDF first.', 'warn'); return; }
+    const Pdf = window.jspdf?.jsPDF;
+    if (!Pdf) return toast('PDF export unavailable', 'err');
+    exporting = exportBtn.disabled = true;
+    const progress = el('p', { class: 'pdf-export-status', role: 'status' });
+    const cancel = el('button', { class: 'tool-btn', text: 'Cancel export', onclick: () => { cancelled = true; } });
+    let cancelled = false;
+    const controls = el('div', { class: 'app-toolbar pdf-export-controls' }, progress, cancel);
+    toolbar.after(controls);
+    let output, bytes = 0;
+    try {
+      for (let n = 1; n <= source.numPages; n++) {
+        if (cancelled || closed || source !== doc) return;
+        progress.textContent = `Exporting page ${n} of ${source.numPages}…`;
+        let angle = preferredRotation, objects = [];
+        // Annotations are scoped to a rotation. Use the selected angle when it has ink,
+        // otherwise search the remaining orientations for a saved page.
+        for (const a of new Set([preferredRotation, 0, 90, 180, 270])) {
+          const saved = await idb.get('boards', inkKey(source, n, a));
+          if (saved?.pages?.[0]?.objects?.length) { angle = a; objects = saved.pages[0].objects; break; }
+        }
+        const { canvas, base } = await pageRaster(source, n, angle, 1800);
+        const context = canvas.getContext('2d');
+        const referenceScale = Math.min(2, 2400 / Math.max(base.width, base.height));
+        context.setTransform(canvas.width / Math.max(1, Math.floor(base.width * referenceScale)), 0, 0, canvas.height / Math.max(1, Math.floor(base.height * referenceScale)), 0, 0);
+        const sources = new Set(objects.map(o => o.type === 'image' ? o.src : o.type === 'emoji' ? EMOJI_SVG[o.char] : null).filter(Boolean));
+        const images = new Map();
+        await Promise.all([...sources].map(async src => {
+          const image = new Image(); image.src = src;
+          try { await image.decode(); } catch { throw new Error(`An annotation image on page ${n} could not be opened`); }
+          images.set(src, image);
+        }));
+        for (const object of objects) paintBoardObject(context, object, src => images.get(src));
+        const format = [base.width, base.height], orientation = base.width >= base.height ? 'landscape' : 'portrait';
+        if (!output) output = new Pdf({ unit: 'pt', format, orientation, compress: true });
+        else output.addPage(format, orientation);
+        const jpeg = await new Promise(r => canvas.toBlob(r, 'image/jpeg', .90));
+        if (!jpeg) throw new Error(`Could not render page ${n}`);
+        bytes += jpeg.size;
+        if (bytes > 55 * 1024 * 1024) throw new Error('Export is larger than 55 MB. Split the source PDF first');
+        output.addImage(new Uint8Array(await jpeg.arrayBuffer()), 'JPEG', 0, 0, base.width, base.height);
+        canvas.width = canvas.height = 1;
+      }
+      if (!output || cancelled || closed || source !== doc) return;
+      downloadBlob(output.output('blob'), `${docName.replace(/\.pdf$/i, '')}-annotated.pdf`);
+      toast('Annotated PDF downloaded (flattened pages)', 'ok');
+    } catch (error) {
+      if (!closed && !cancelled && source === doc) toast(error.message || 'Annotated PDF export failed', 'err');
+    } finally { controls.remove(); exporting = exportBtn.disabled = false; }
   }
 
   async function openAnnotation() {
@@ -213,7 +289,7 @@ export function mount({ root, params, api }) {
     const source = doc;
     const n = pageNum;
     const angle = rotation;
-    const key = `pdf-ink:${source.fingerprints[0]}:${n}:${angle}`;
+    const key = inkKey(source, n, angle);
     const mountPoint = el('div', { class: 'pdf-annotation-board' });
     const session = annotationSession = { mountPoint };
     annotateBtn.disabled = true;
@@ -324,6 +400,7 @@ export function mount({ root, params, api }) {
     onParams: (p) => { if (p.file) loadFile(p.file); },
     onResize: () => onResize(),
     save: () => annotationSession?.board?.save(),
+    togglePresentation: () => annotationSession?.board?.togglePresentation(),
     onClose: () => {
       closed = true;
       closeAnnotation();

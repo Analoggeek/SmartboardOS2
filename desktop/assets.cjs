@@ -11,7 +11,7 @@ const TYPES = {
 
 function rendererAsset(pathname) {
   const file = pathname === '/' ? '/index.html' : pathname;
-  if (!/^\/(?:(?:index|install)\.html|manifest\.webmanifest|sw\.js|(?:assets|css|js|vendor)\/(?:[\w-]+\/)*[\w.-]+)$/.test(file)) return null;
+  if (!/^\/(?:(?:index|install|student)\.html|manifest\.webmanifest|sw\.js|(?:assets|css|js|vendor)\/(?:[\w-]+\/)*[\w.-]+)$/.test(file)) return null;
   const type = TYPES[extname(file)];
   return type ? { file: file.slice(1), type } : null;
 }

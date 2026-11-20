@@ -26,7 +26,7 @@ test('India detail includes the mainland and Andamans, excludes open sea, and in
 });
 
 test('Smart Lab covers every subject and level and can export a recall-practice version of each diagram', () => {
-  assert.equal(diagrams.length, 27);
+  assert.equal(diagrams.length, 36);
   assert.equal(new Set(diagrams.map(({ id }) => id)).size, diagrams.length);
   for (const subject of subjects) for (const level of levels) {
     assert.equal(diagrams.filter(d => d.subject === subject && d.level === level).length, 3);

@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('smartboardUpdates', {
   install: () => ipcRenderer.invoke('sbos:update:install'),
 });
 contextBridge.exposeInMainWorld('smartboardLibrary', {
+  systemAudioSupported: process.platform === 'win32',
   open: () => ipcRenderer.invoke('sbos:library:open'),
   save: (key, json) => ipcRenderer.invoke('sbos:library:save', key, json),
   start: (kind) => ipcRenderer.invoke('sbos:library:start', kind),

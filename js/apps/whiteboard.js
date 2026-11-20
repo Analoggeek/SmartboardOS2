@@ -7,6 +7,9 @@ import { icon, iconEl } from '../icons.js';
 import { idb, store } from '../db.js';
 import { createPenTracker, getPenSettings, savePenSettings } from '../pen.js';
 import { capturePhoto } from '../camera.js';
+import { boardBroadcast } from '../board-broadcast.js';
+import { checkpoint } from '../board-checkpoints.js';
+import { paintBoardObject } from '../board-render.js';
 import { EMOJI_SVG } from '../emoji-data.js';
 
 const PALETTE = [
@@ -64,6 +67,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   let tapInfo = null;
   let selection = null;
   let clipText = '';
+  let replacing = false;
 
   /* ---------------- DOM ---------------- */
   const stage = el('div', { class: 'wb-stage' });
@@ -202,10 +206,27 @@ export async function mount({ root, params = {}, api, annotation }) {
   const targetWindow = root.closest('.win');
   let immersive = false;
   let presentationPending = false;
+  let presentationActive = false;
   const presentBtn = el('button', { class: 'tool-btn wb-present', title: 'Fullscreen presentation (F)', 'aria-pressed': 'false',
     html: `${icon('fullscreen')}<span>Fullscreen</span>`, onclick: () => togglePresentation() });
+  const toolsToggle = el('button', { class: 'btn', text: 'Tools', 'aria-expanded': 'false', onclick: () => showPresentationTools(!toolbar.classList.contains('wb-tools-open')) });
+  const controls = el('div', { class: 'wb-presentation-controls', hidden: true }, toolsToggle,
+    el('button', { class: 'btn', text: 'Exit fullscreen', onclick: () => togglePresentation() }));
+  function showPresentationTools(show) {
+    toolbar.classList.toggle('wb-tools-open', show);
+    toolsToggle.setAttribute('aria-expanded', String(show));
+    if (!show) { toggleBackgrounds(false); toggleColors(false); exportMenu.hidden = true; }
+  }
   function presentationChanged() {
     const active = immersive || document.fullscreenElement === targetWindow;
+    if (active !== presentationActive) {
+      targetWindow?.classList.toggle('wb-presenting', active);
+      controls.hidden = !active;
+      presentationActive = active;
+      showPresentationTools(false);
+      if (active) toolsToggle.focus({ preventScroll: true });
+      else if (root.isConnected) presentBtn.focus({ preventScroll: true });
+    }
     presentBtn.setAttribute('aria-pressed', String(active));
     presentBtn.querySelector('span').textContent = active ? 'Exit fullscreen' : 'Fullscreen';
     requestAnimationFrame(resizeCanvas);
@@ -213,7 +234,6 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
   function setImmersive(active) {
     immersive = active;
-    targetWindow?.classList.toggle('wb-immersive', active);
     presentationChanged();
   }
   async function togglePresentation() {
@@ -238,6 +258,14 @@ export async function mount({ root, params = {}, api, annotation }) {
   const saveBtn = el('button', { class: 'tool-btn', title: 'Save board', html: icon('save'), onclick: () => { saveSession(true); } });
   const exportBtn = el('button', { class: 'tool-btn', title: 'Export & save', html: `${icon('download')}<span>Export</span>` });
 
+  const studentBtn = el('button', { class: 'tool-btn', text: 'Student display', 'aria-pressed': 'false', onclick: () => broadcast.toggle() });
+  const broadcast = boardBroadcast(canvas, (state) => {
+    studentBtn.setAttribute('aria-pressed', String(state === 'on' || state === 'starting'));
+    studentBtn.textContent = state === 'on' || state === 'starting' ? 'Stop student display' : 'Student display';
+    if (state === 'on') toast('Student display connected. Move it to the projector or second screen.', 'ok', 5000);
+    if (state === 'blocked') toast('Student display did not open. Allow this site to open a popup and retry.', 'warn');
+    if (state === 'unavailable') toast('Second-window display is unavailable in this browser.', 'warn');
+  });
   const toolbar = el('div', { class: 'app-toolbar wb-toolbar', style: { position: 'relative' } },
     presentBtn, colorBtn, annotation ? null : bgBtn, sizeInput,
     el('div', { class: 'sep' }), toolGroup,
@@ -248,10 +276,10 @@ export async function mount({ root, params = {}, api, annotation }) {
     el('div', { class: 'sep' }),
     penBtn, annotation ? null : floatBtn,
     el('div', { class: 'sep' }),
-    imgBtn, camBtn, emojiBtn, exportBtn
+    imgBtn, camBtn, emojiBtn, exportBtn, studentBtn
   );
 
-  const app = el('div', { class: 'app' }, toolbar, stage);
+  const app = el('div', { class: 'app wb-app' }, toolbar, stage, controls);
   root.append(app);
 
   /* ---------------- emoji picker ---------------- */
@@ -553,40 +581,6 @@ export async function mount({ root, params = {}, api, annotation }) {
     mark();
   }
 
-  function roundRect(c, x, y, w, h, r) {
-    const rr = Math.min(r, w / 2, h / 2);
-    c.beginPath();
-    c.moveTo(x + rr, y);
-    c.arcTo(x + w, y, x + w, y + h, rr);
-    c.arcTo(x + w, y + h, x, y + h, rr);
-    c.arcTo(x, y + h, x, y, rr);
-    c.arcTo(x, y, x + w, y, rr);
-    c.closePath();
-  }
-
-  function truncate(str, n) {
-    const t = String(str || '');
-    return t.length > n ? `${t.slice(0, n - 1)}…` : t;
-  }
-
-  function wrapText(c, text, x, y, maxWidth, lineHeight, maxLines = 3) {
-    const words = String(text || '').split(/\s+/);
-    let line = '';
-    let lines = 0;
-    for (let i = 0; i < words.length; i++) {
-      const test = line ? `${line} ${words[i]}` : words[i];
-      if (c.measureText(test).width > maxWidth && line) {
-        c.fillText(line, x, y + lines * lineHeight);
-        line = words[i];
-        lines++;
-        if (lines >= maxLines) return;
-      } else {
-        line = test;
-      }
-    }
-    if (line) c.fillText(line, x, y + lines * lineHeight);
-  }
-
   function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
@@ -701,6 +695,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (live?.type && live.tool !== 'laser') drawObject(ctx,live);
     if (selection && objects.includes(selection)) drawSelection(ctx);
     for (const l of laser) drawObject(ctx,l);
+    broadcast.update();
     const text = `${Math.round(view.scale * 100)}%`;
     if (zoomLabel.textContent !== text) zoomLabel.textContent = text;
   }
@@ -714,163 +709,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     c.strokeRect(bgImg.x, bgImg.y, bgImg.w, bgImg.h);
   }
 
-  function strokePath(c, o) {
-    const pts = o.points;
-    if (pts.length === 1) {
-      c.beginPath();
-      c.arc(pts[0].x, pts[0].y, Math.max(c.lineWidth / 2, 0.6), 0, Math.PI * 2);
-      c.fillStyle = c.strokeStyle;
-      c.fill();
-      return;
-    }
-    if (o.pressured) {
-      // variable width stroke: each segment uses its own pressure value
-      const base = o.size;
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1];
-        const b = pts[i];
-        const pr = clamp((a.p ?? 0.5) * 0.45 + (b.p ?? 0.5) * 0.55, 0, 1);
-        c.lineWidth = Math.max(0.6, base * (0.3 + pr * 1.35));
-        c.beginPath();
-        c.moveTo(a.x, a.y);
-        c.lineTo(b.x, b.y);
-        c.stroke();
-      }
-      return;
-    }
-    c.beginPath();
-    c.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const mx = (pts[i].x + pts[i + 1].x) / 2;
-      const my = (pts[i].y + pts[i + 1].y) / 2;
-      c.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-    }
-    const last = pts[pts.length - 1];
-    c.lineTo(last.x, last.y);
-    c.stroke();
-  }
-
-  function drawObject(c, o) {
-    c.save();
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.strokeStyle = o.color;
-    c.fillStyle = o.color;
-    if (o.type === 'stroke') {
-      const hi = o.tool === 'highlighter';
-      c.lineWidth = hi ? o.size * 3.2 : o.size;
-      c.globalAlpha = hi ? 0.32 : 1;
-      if (o.tool === 'laser') {
-        c.shadowColor = '#ff3b5c';
-        c.shadowBlur = 18;
-        c.strokeStyle = '#ff3b5c';
-        c.lineWidth = o.size + 1;
-      }
-      strokePath(c, o);
-    } else if (o.type === 'shape') {
-      c.lineWidth = o.size;
-      c.globalAlpha = 1;
-      const { x0, y0, x1, y1 } = o;
-      if (o.shape === 'line') {
-        c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
-      } else if (o.shape === 'arrow') {
-        c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
-        const ang = Math.atan2(y1 - y0, x1 - x0);
-        const head = Math.max(10, o.size * 3.2);
-        c.beginPath();
-        c.moveTo(x1, y1);
-        c.lineTo(x1 - head * Math.cos(ang - 0.42), y1 - head * Math.sin(ang - 0.42));
-        c.lineTo(x1 - head * Math.cos(ang + 0.42), y1 - head * Math.sin(ang + 0.42));
-        c.closePath();
-        c.fill();
-      } else if (o.shape === 'rect') {
-        c.strokeRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
-      } else if (o.shape === 'ellipse') {
-        c.beginPath();
-        c.ellipse((x0 + x1) / 2, (y0 + y1) / 2, Math.abs(x1 - x0) / 2, Math.abs(y1 - y0) / 2, 0, 0, Math.PI * 2);
-        c.stroke();
-      }
-    } else if (o.type === 'text') {
-      c.font = `600 ${o.fontSize}px Inter, "Segoe UI", system-ui, sans-serif`;
-      c.textBaseline = 'top';
-      c.fillStyle = o.color;
-      String(o.text).split('\n').forEach((line, i) => {
-        c.fillText(line, o.x, o.y + i * o.fontSize * 1.28);
-      });
-    } else if (o.type === 'image') {
-      const img = getImage(o.src);
-      if (img && img.complete && img.naturalWidth) {
-        c.drawImage(img, o.x, o.y, o.w, o.h);
-      } else {
-        c.fillStyle = 'rgba(127,127,127,.15)';
-        c.fillRect(o.x, o.y, o.w, o.h);
-      }
-    } else if (o.type === 'emoji') {
-      const src = EMOJI_SVG[o.char];
-      const art = src ? getImage(src) : null;
-      if (art && art.complete && art.naturalWidth) {
-        c.drawImage(art, o.x - o.size / 2, o.y - o.size / 2, o.size, o.size);
-      } else {
-        c.fillStyle = o.color || (document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff');
-        c.font = `${o.size}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif`;
-        c.textAlign = 'center';
-        c.textBaseline = 'middle';
-        c.fillText(o.char, o.x, o.y);
-      }
-    } else if (o.type === 'card') {
-      const light = document.documentElement.dataset.theme === 'light';
-      c.shadowColor = 'rgba(0,0,0,.34)';
-      c.shadowBlur = 22;
-      c.shadowOffsetY = 10;
-      roundRect(c, o.x, o.y, o.w, o.h, 18);
-      c.fillStyle = light ? '#ffffff' : '#151c31';
-      c.fill();
-      c.shadowColor = 'transparent';
-      c.shadowBlur = 0;
-      c.shadowOffsetY = 0;
-      roundRect(c, o.x, o.y, o.w, o.h, 18);
-      c.strokeStyle = 'rgba(99,102,241,.7)';
-      c.lineWidth = 2;
-      c.stroke();
-      c.fillStyle = 'rgba(99,102,241,.95)';
-      roundRect(c, o.x, o.y + 6, 6, o.h - 12, 3);
-      c.fill();
-      c.beginPath();
-      c.arc(o.x + 46, o.y + 44, 18, 0, Math.PI * 2);
-      c.fillStyle = 'rgba(99,102,241,.18)';
-      c.fill();
-      c.strokeStyle = '#6366f1';
-      c.lineWidth = 2;
-      c.beginPath();
-      c.arc(o.x + 46, o.y + 44, 18, 0, Math.PI * 2);
-      c.moveTo(o.x + 28, o.y + 44);
-      c.lineTo(o.x + 64, o.y + 44);
-      c.stroke();
-      c.save();
-      c.beginPath();
-      c.arc(o.x + 46, o.y + 44, 18, 0, Math.PI * 2);
-      c.clip();
-      c.beginPath();
-      c.ellipse(o.x + 46, o.y + 44, 8, 18, 0, 0, Math.PI * 2);
-      c.stroke();
-      c.restore();
-      c.fillStyle = light ? '#0f172a' : '#eef2ff';
-      c.font = '700 19px Inter, "Segoe UI", system-ui, sans-serif';
-      wrapText(c, o.title || 'Web page', o.x + 78, o.y + 38, o.w - 104, 24, 2);
-      c.fillStyle = '#6366f1';
-      c.font = '600 12px Inter, "Segoe UI", system-ui, sans-serif';
-      c.fillText(truncate(o.url, 52), o.x + 78, o.y + 62);
-      if (o.desc) {
-        c.fillStyle = light ? '#475569' : '#a9b2cd';
-        c.font = '400 14px Inter, "Segoe UI", system-ui, sans-serif';
-        wrapText(c, o.desc, o.x + 24, o.y + 100, o.w - 48, 20, Math.max(1, Math.floor((o.h - 140) / 20)));
-      }
-      c.fillStyle = light ? '#8b96b8' : '#7480a0';
-      c.font = '700 10.5px Inter, "Segoe UI", system-ui, sans-serif';
-      c.fillText('SAVED REFERENCE', o.x + 24, o.y + o.h - 18);
-    }
-    c.restore();
-  }
+  const drawObject = (context, object) => paintBoardObject(context, object, getImage);
 
   function getImage(src) {
     if (imgCache.has(src)) return imgCache.get(src);
@@ -1478,17 +1317,25 @@ export async function mount({ root, params = {}, api, annotation }) {
     return out;
   }
 
+  let pageOverview;
   function showPageMenu() {
+    pageOverview?.remove();
     const grid = el('div', { class: 'wb-pages-grid' });
     pages.forEach((pg, i) => {
       const card = el('div', { class: `wb-page-card${i === pageIndex ? ' active' : ''}` },
         pageThumb(pg),
         el('div', { class: 'wb-page-meta' },
-          el('b', { text: `Page ${i + 1}` }),
+          el('b', { text: `Page ${i + 1}${pg.title ? ` · ${pg.title}` : ''}` }),
           el('small', { text: `${pg.objects.length} item${pg.objects.length === 1 ? '' : 's'}${pg.bgImage ? ' · source' : ''}` })
         ),
         el('div', { class: 'wb-page-acts' },
           el('button', { class: 'mini-btn', text: 'Open', onclick: () => { gotoPage(i); closeModal(); } }),
+          el('button', { class: 'mini-btn', text: 'Name', onclick: () => {
+            const title = prompt('Page name (optional)', pg.title || '');
+            if (title !== null) { pg.title = title.trim().slice(0,80); scheduleSave(); showPageMenu(); }
+          } }),
+          el('button', { class: 'mini-btn', text: '←', 'aria-label': 'Move page earlier', disabled: i === 0, onclick: () => movePage(i,-1) }),
+          el('button', { class: 'mini-btn', text: '→', 'aria-label': 'Move page later', disabled: i === pages.length - 1, onclick: () => movePage(i,1) }),
           el('button', { class: 'mini-btn', text: 'Duplicate', onclick: () => duplicatePage(i) }),
           el('button', { class: 'mini-btn danger', text: 'Delete', disabled: pages.length <= 1, onclick: () => { removePage(i); } })
         )
@@ -1511,14 +1358,21 @@ export async function mount({ root, params = {}, api, annotation }) {
         )
       )
     );
-    function closeModal() { backdrop.remove(); }
+    pageOverview = backdrop;
+    function closeModal() { backdrop.remove(); pageOverview = null; }
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
-    document.body.append(backdrop);
+    (presentationActive ? targetWindow : document.body).append(backdrop);
   }
 
+  function movePage(i, delta) {
+    const pg = page();
+    const [moved] = pages.splice(i,1);
+    pages.splice(i+delta,0,moved);
+    pageIndex = pages.indexOf(pg); updateButtons(); scheduleSave(); showPageMenu();
+  }
   function duplicatePage(i) {
     const src = pages[i];
-    pages.splice(i + 1, 0, JSON.parse(JSON.stringify({ objects: src.objects, bg: src.bg, bgColor: src.bgColor, bgImage: src.bgImage })));
+    pages.splice(i + 1, 0, JSON.parse(JSON.stringify({ objects: src.objects, bg: src.bg, bgColor: src.bgColor, bgImage: src.bgImage, title: src.title })));
     updateButtons();
     mark(); scheduleSave();
     showPageMenu(true);
@@ -1570,8 +1424,9 @@ export async function mount({ root, params = {}, api, annotation }) {
     const r = stage.getBoundingClientRect();
     const b = boundsFor(pg, r.width / view.scale, r.height / view.scale);
     const out = document.createElement('canvas');
-    out.width = Math.round(b.w * scale);
-    out.height = Math.round(b.h * scale);
+    scale = Math.min(scale, 4200 / Math.max(b.w, b.h), Math.sqrt(7500000 / (b.w * b.h)));
+    out.width = Math.max(1, Math.round(b.w * scale));
+    out.height = Math.max(1, Math.round(b.h * scale));
     const c = out.getContext('2d');
     const light = opts.light ?? (document.documentElement.dataset.theme === 'light');
     c.fillStyle = pg.bgColor || BG_FILLS[pg.bg] || (light ? '#ffffff' : '#0e1424');
@@ -1634,10 +1489,12 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
 
   async function saveSession(manual = false, immediate = false) {
+    if (replacing) return false;
     try {
       const payload = serialize();
       const saved = await idb.set('boards', storageKey, payload);
       if (!saved) throw new Error('Storage is unavailable');
+      if (!annotation && !replacing) checkpoint(payload, manual ? 'Manual save' : 'Autosave').catch(console.warn);
       if (!annotation && payload.pages.every(p => !p.bgImage && p.objects.length < 1500 && !p.objects.some(o => o.type === 'image'))) store.set('board-mirror', payload);
       if (immediate || manual) await archive.write(payload);
       else archive.schedule(payload);
@@ -1656,7 +1513,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       const mirror = annotation ? null : store.get('board-mirror', null);
       if (mirror && (!data || (mirror.savedAt || 0) > (data.savedAt || 0))) data = mirror;
       if (data && Array.isArray(data.pages) && data.pages.length) {
-        pages = (annotation ? data.pages.slice(0, 1) : data.pages).map((p) => ({ objects: p.objects || [], bg: p.bg || 'grid', bgColor: /^#[a-f0-9]{6}$/i.test(p.bgColor) ? p.bgColor : undefined, bgImage: p.bgImage || null }));
+        pages = (annotation ? data.pages.slice(0, 1) : data.pages).map((p) => ({ objects: p.objects || [], bg: p.bg || 'grid', bgColor: /^#[a-f0-9]{6}$/i.test(p.bgColor) ? p.bgColor : undefined, bgImage: p.bgImage || null, title: p.title }));
         if (annotation) pages[0].bgImage = annotation.image;
         pageIndex = clamp(data.pageIndex || 0, 0, pages.length - 1);
         objects = pages[pageIndex].objects;
@@ -1683,7 +1540,7 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   /* ---------------- shortcuts ---------------- */
   function onKey(e) {
-    if (!isVisible()) return;
+    if (!isVisible() || replacing) return;
     if (e.key === 'Escape' && (colorPop.style.display === 'grid' || !bgMenu.hidden)) {
       toggleColors(false); toggleBackgrounds(false); return;
     }
@@ -1734,7 +1591,24 @@ export async function mount({ root, params = {}, api, annotation }) {
   requestAnimationFrame(resizeCanvas);
 
   // params: image from PDF viewer and tool requests
+  async function openLessonBoard(board, title) {
+    if (annotation || replacing) return;
+    replacing = true;
+    try {
+      if (!await checkpoint(serialize(), 'Before opening a lesson', true)) throw Error('Could not keep a recovery point; export your current board first.');
+      if (!root.isConnected) return;
+      const next = structuredClone(board);
+      if (!await idb.set('boards', storageKey, { ...next, savedAt: Date.now() })) throw Error('Could not save the lesson board.');
+      store.del('board-mirror');
+      pages = next.pages;
+      gotoPage(next.pageIndex);
+      fitView();
+      toast(`${title || 'Lesson'} opened`, 'ok');
+    } catch (e) { toast(e.message || 'Could not open lesson', 'err'); }
+    finally { replacing = false; }
+  }
   const handleParams = (p = {}) => {
+    if (p.lessonBoard) { openLessonBoard(p.lessonBoard, p.title); return; }
     if (p.image) {
       if (p.newPage && (objects.length || page().bgImage)) addPage();
       addImageObject(p.image, { asBackground: !!p.asBackground });
@@ -1744,6 +1618,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (p.tool && TOOLS.some((t) => t.id === p.tool)) setTool(p.tool);
     if (p.picker) { buildEmojiPop(); emojiPop.hidden = false; }
     if (p.addPage) addPage();
+    if (p.fullscreen) togglePresentation();
   };
   handleParams(params);
 
@@ -1754,6 +1629,8 @@ export async function mount({ root, params = {}, api, annotation }) {
     onResize: () => resizeCanvas(),
     onClose: () => {
       const saved = saveSession(false, true);
+      broadcast.stop();
+      pageOverview?.remove();
       ro.disconnect();
       document.removeEventListener('fullscreenchange', presentationChanged);
       if (immersive) setImmersive(false);

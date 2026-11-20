@@ -59,7 +59,8 @@ export const idb = {
       const os = await tx(storeName, 'readwrite');
       return await new Promise((res, rej) => {
         const r = os.put(value, key);
-        r.onsuccess = () => res(true);
+        os.transaction.oncomplete = () => res(true);
+        os.transaction.onabort = () => rej(os.transaction.error || new Error('Storage transaction aborted'));
         r.onerror = () => rej(r.error);
       });
     } catch (e) { console.warn('idb.set', e); return false; }
@@ -69,7 +70,8 @@ export const idb = {
       const os = await tx(storeName, 'readwrite');
       return await new Promise((res, rej) => {
         const r = os.delete(key);
-        r.onsuccess = () => res(true);
+        os.transaction.oncomplete = () => res(true);
+        os.transaction.onabort = () => rej(os.transaction.error || new Error('Storage transaction aborted'));
         r.onerror = () => rej(r.error);
       });
     } catch { return false; }
@@ -93,7 +95,8 @@ export const idb = {
       const os = await tx(storeName, 'readwrite');
       return await new Promise((res, rej) => {
         const r = os.clear();
-        r.onsuccess = () => res(true);
+        os.transaction.oncomplete = () => res(true);
+        os.transaction.onabort = () => rej(os.transaction.error || new Error('Storage transaction aborted'));
         r.onerror = () => rej(r.error);
       });
     } catch { return false; }
@@ -126,6 +129,8 @@ export const DEFAULT_SETTINGS = {
   theme: 'dark',          // dark | light
   accent: 'indigo',
   motion: true,
+  contrast: false,
+  largeControls: false,
   use24h: false,
   teacherName: 'Teacher',
   wallpaper: 'aurora',

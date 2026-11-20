@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the offline atlas using Natural Earth GeoJSON from the pinned source.
 Run `python3 scripts/build-atlas.py /path/to/input` after fetching the six datasets below.
+Use --cities-only with ne_50m_populated_places_simple.geojson to build city search.
 For the India detail pack pass --india-only and provide the two 1:10m files named below.
 Data: public domain. Classroom maps are not official boundary definitions.
 """
@@ -48,6 +49,12 @@ def main(directory):
 
     def title(p):
         return p.get('NAME_EN') or p.get('name_en') or p.get('name') or p.get('NAME') or ''
+
+    if '--cities-only' in sys.argv:
+        places = json.loads((directory / 'ne_50m_populated_places_simple.geojson').read_text())['features']
+        output('cities', [[p['name'], p['adm0name'], p['adm0_a3'], round(p['longitude'], 3), round(p['latitude'], 3)]
+                          for feature in places for p in [feature['properties']] if p['name'] and p['latitude'] is not None])
+        return
 
     if '--india-only' in sys.argv:
         # The dedicated admin-0 India worldview layer, not a boundary drawn by hand.
