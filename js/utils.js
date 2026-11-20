@@ -36,7 +36,7 @@ export function debounce(fn, wait = 250) {
 }
 
 export const isTouch = () => window.matchMedia('(pointer: coarse)').matches;
-export const isMobile = () => window.innerWidth <= 820;
+export const isMobile = () => matchMedia('(max-width: 820px), (max-height: 460px)').matches;
 
 export function fmtClock(date, use24 = false) {
   let h = date.getHours();

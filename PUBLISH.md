@@ -1,89 +1,38 @@
-# SmartBoardOS ko GitHub se live karna (Hinglish)
+# Publishing offline installers
 
-Repo ka naam: **smartboardOS**
-Live URL banega: `https://<your-username>.github.io/smartboardOS/`
+## Automatic releases
 
----
+1. Merge an update into `main`. A push to `main` runs **Offline desktop installers** in GitHub Actions. Pull requests run validation only. The workflow can also be run manually **on `main`**.
+2. The workflow assigns a unique version (`1.4.<workflow run number>`) and builds four full installers: Windows x64 and ARM64 NSIS `.exe` files and Intel/Apple silicon `.dmg` files. These are **not** network bootstrap installers. The build machines need internet access to fetch Electron and packaging tools; target computers do not.
+3. After all packages succeed, the workflow uploads them and `SHA256SUMS.txt` to a draft release for the exact commit, then publishes it as the latest release. A failed build does not replace the last working release. Installers are never committed to Git.
+4. Download from [Releases](https://github.com/Analoggeek/SmartboardOS2/releases/latest) and use that full installer for fresh or offline upgrade installs. Installed desktop copies can use **Settings → App → Check for updates** to verify and download the newest published full installer, then launch it. There are no background downloads. On Mac the disk image is opened and the user replaces the app; unattended replacement is not supported by these ad-hoc-signed builds. Fully disconnected machines must receive the new installer by USB or other local transfer.
 
-## Method 1 — GitHub CLI (sabse fast, 1 command)
+The publish job requires GitHub Actions to be enabled and the workflow's `GITHUB_TOKEN` to be allowed `contents: write` under repository/org policy. No personal access token is needed. CI does not perform publisher signing or Apple notarization; production deployments that require trusted signatures should configure those separately before wide rollout.
 
-```bash
-cd smartboardOS
-gh auth login                 # agar pehle se login nahi hai
-gh repo create smartboardOS --public --source=. --remote=origin --push
+## Local packaging
+
+Build on the relevant OS using Node.js 22.12+:
+
+```sh
+npm ci
+npm test
+# Windows
+npm run dist:win -- --x64
+npm run dist:win -- --arm64
+# macOS (use the matching runner or Mac for each architecture)
+npm run dist:mac -- --x64
+npm run dist:mac -- --arm64
 ```
 
-Phir: repo → **Settings → Pages → Source = GitHub Actions**. Done ✅
+Find the `.exe` or `.dmg` under `dist/`. A local build does not publish to GitHub.
 
----
+## Release smoke test on each platform
 
-## Method 2 — normal git (username/password ki jagah token use karein)
+- Copy the installer to a clean Windows or macOS machine. Disconnect the machine from the internet before running setup, then launch from the installed shortcut or Applications.
+- Draw and save on the whiteboard, open a local PDF, send its page to the board, and export a board PDF. Create a note, quit, and confirm that both the board and note return on relaunch.
+- From the installed app, test **Check for updates** against a newer public release and confirm it opens the right installer after verification.
+- Run a newer installer while disconnected and confirm the same data is still there and the new version appears in Settings.
 
-1. GitHub par naya **empty** repo banaiye: naam `smartboardOS`, Public, *README/gitignore add nahi karna*.
-2. Apne folder me:
+## Optional web deployment
 
-```bash
-cd smartboardOS
-git init -b main
-git add .
-git commit -m "feat: SmartBoardOS v1.2.0 — teacher's hub (pen/palm, safe browser, pages, stickers)"
-git remote add origin https://github.com/<your-username>/smartboardOS.git
-git push -u origin main
-```
-
-Password ki jagah **Personal Access Token** daalein:
-GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token → scope: `repo` (aur `workflow`).
-
-3. Repo → **Settings → Pages** → *Build and deployment* → **Source: GitHub Actions**.
-4. Actions tab me "Deploy SmartBoardOS to GitHub Pages" workflow chalega (~40 sec), phir URL live.
-
----
-
-## Method 3 — browser se, bina terminal
-
-1. GitHub par repo banaiye → **Add file → Upload files**.
-2. `smartboardOS-v1.3.0.zip` ko apne laptop par extract karein (files seedha andar hain), phir **saari files/folders** drag & drop karke commit karein
-   (zip ko seedha upload na karein — Pages zip ko serve nahi karta).
-3. **Settings → Pages → Source: GitHub Actions** select karein (workflow file already included hai).
-4. 1 minute me site live.
-
-> Pages ko branch se bhi serve kar sakte hain: *Source: Deploy from a branch → main → /(root)*. Is case me `.nojekyll` file already included hai, isliye `js/`, `assets/` folders waise hi serve honge.
-
----
-
-## Update kaise karein
-
-```bash
-# changes ke baad
-# changes ke baad sw.js me VERSION bump karein (current: sbos-v1.2.0)
-git add .
-git commit -m "update: ..."
-git push
-```
-
-Workflow dobara deploy kar dega. Browser me app kholne par naya version aa jayega
-(service worker cache update hota hai).
-
----
-
-## Install as app (PWA)
-
-Live site khulne ke baad:
-
-- **Android/Chrome:** ⋮ menu → *Install app* (ya top-bar ke install icon se)
-- **Desktop Chrome/Edge:** address bar ke right side install icon
-- **iPhone/iPad Safari:** Share → *Add to Home Screen*
-
-Install karne ke baad internet ke bina bhi chalega — board, PDF Studio, sab offline.
-
----
-
-## Local test
-
-```bash
-cd smartboardOS
-python3 -m http.server 5173
-# ya: npx serve .
-```
-
-phir <http://localhost:5173> khol lein.
+The web edition is still a static site. Serve `index.html`, `css/`, `js/`, `assets/`, `vendor/`, `manifest.webmanifest`, and `sw.js` together over HTTPS (or localhost for testing). Bump the cache version in `sw.js` whenever publishing changed web assets. Existing web tabs keep their current version until closed; then the verified cache activates.

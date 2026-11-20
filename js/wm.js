@@ -12,7 +12,7 @@ export class WindowManager {
     this.changeHandlers = [];
     this.cascade = 0;
 
-    window.addEventListener('resize', () => this.handleViewportResize());
+    new ResizeObserver(() => this.handleViewportResize()).observe(layer);
   }
 
   register(def) { this.apps.set(def.id, def); return this; }
@@ -38,7 +38,8 @@ export class WindowManager {
     if (existing && !existing.closed) {
       if (existing.minimized) this.toggleMinimize(appId, false);
       this.focus(appId);
-      existing.instance?.onParams?.(params);
+      if (existing.instance) existing.instance.onParams?.(params);
+      else existing.pending.push(params);
       return existing.instance;
     }
 
@@ -71,17 +72,10 @@ export class WindowManager {
 
   toggleMaximize(appId) {
     const rec = this.windows.get(appId);
-    if (!rec) return;
-    if (rec.root.classList.contains('max')) {
-      rec.root.classList.remove('max');
-      this.applyRect(rec, rec.prevRect);
-      rec.maxed = false;
-    } else {
-      rec.prevRect = { left: rec.root.offsetLeft, top: rec.root.offsetTop, width: rec.root.offsetWidth, height: rec.root.offsetHeight };
-      rec.root.classList.add('max');
-      this.applyRect(rec, { left: 0, top: 0, width: this.layer.clientWidth, height: this.layer.clientHeight });
-      rec.maxed = true;
-    }
+    if (!rec || isMobile()) return;
+    if (!rec.maxed) rec.prevRect = this.readRect(rec);
+    rec.maxed = !rec.maxed;
+    this.layoutWindow(rec);
     rec.instance?.onResize?.();
     this.emit();
   }
@@ -105,9 +99,8 @@ export class WindowManager {
     const layerW = this.layer.clientWidth;
     const layerH = this.layer.clientHeight;
 
-    let width = Math.min(def.width || 960, layerW - 24);
-    let height = Math.min(def.height || 640, layerH - 24);
-    if (mobile) { width = layerW; height = layerH; }
+    let width = Math.min(def.width || 960, Math.max(0, layerW - 24));
+    let height = Math.min(def.height || 640, Math.max(0, layerH - 24));
 
     const step = (this.cascade++ % 6) * 26;
     let left = mobile ? 0 : Math.max(12, (layerW - width) / 2 + step - 60);
@@ -115,12 +108,11 @@ export class WindowManager {
     left = clamp(left, 0, Math.max(0, layerW - width));
     top = clamp(top, 0, Math.max(0, layerH - height));
 
-    const root = el('section', { class: 'win', role: 'dialog', 'aria-label': def.name });
+    const root = el('section', { class: 'win', role: 'dialog', 'aria-label': def.name, dataset: { app: def.id } });
     root.style.width = `${width}px`;
     root.style.height = `${height}px`;
     root.style.left = `${left}px`;
     root.style.top = `${top}px`;
-    if (mobile) root.classList.add('max');
 
     const dot = (kind, label, path, onClick) => el('button', {
       class: `win-dot ${kind}`, title: label, 'aria-label': label, onclick: onClick,
@@ -153,9 +145,10 @@ export class WindowManager {
 
     const rec = {
       id: def.id, def, root, body, head, titleEl,
-      instance: null, minimized: false, closed: false, maxed: mobile,
+      instance: null, pending: [], minimized: false, closed: false, maxed: !!def.startMaximized, prevRect: { left, top, width, height }, compact: false, restoreSize: mobile,
     };
 
+    this.layoutWindow(rec);
     this.attachDrag(rec);
     root.addEventListener('pointerdown', () => this.focus(def.id), true);
     head.addEventListener('dblclick', () => this.toggleMaximize(def.id));
@@ -176,13 +169,19 @@ export class WindowManager {
     // mount asynchronously so the window animates in first
     requestAnimationFrame(() => {
       try {
+        if (rec.closed) return;
+        const finish = (inst) => {
+          if (rec.closed) { inst?.onClose?.(); return; }
+          rec.instance = inst || {};
+          rec.pending.splice(0).forEach((p) => rec.instance.onParams?.(p));
+        };
         const result = def.mount ? def.mount({ root: body, params, api, win: root }) : null;
         if (result && typeof result.then === 'function') {
           result
-            .then((inst) => { rec.instance = inst || {}; })
+            .then(finish)
             .catch((err) => console.error(`[${def.id}] async mount failed`, err));
         } else {
-          rec.instance = result || {};
+          finish(result);
         }
       } catch (err) {
         console.error(`[${def.id}] mount failed`, err);
@@ -224,9 +223,9 @@ export class WindowManager {
       if (!start) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      const maxL = this.layer.clientWidth - 60;
-      const maxT = this.layer.clientHeight - 44;
-      root.style.left = `${clamp(start.left + dx, -start.w + 120, maxL)}px`;
+      const maxL = Math.max(0, this.layer.clientWidth - start.w);
+      const maxT = Math.max(0, this.layer.clientHeight - start.h);
+      root.style.left = `${clamp(start.left + dx, 0, maxL)}px`;
       root.style.top = `${clamp(start.top + dy, 0, maxT)}px`;
     };
     const up = (e) => {
@@ -268,6 +267,7 @@ export class WindowManager {
       if (dir.includes('s')) h = Math.max(220, start.h + dy);
       if (dir.includes('w')) {
         w = Math.max(320, start.w - dx);
+        w = Math.min(w, start.left + start.w);
         left = start.left + (start.w - w);
       }
       w = Math.min(w, this.layer.clientWidth - Math.max(0, left));
@@ -288,21 +288,43 @@ export class WindowManager {
     handle.addEventListener('pointercancel', onUp);
   }
 
-  handleViewportResize() {
-    const mobile = isMobile();
-    this.windows.forEach((rec) => {
-      if (mobile) {
-        rec.root.classList.add('max');
-        this.applyRect(rec, { left: 0, top: 0, width: this.layer.clientWidth, height: this.layer.clientHeight });
-      } else if (rec.root.classList.contains('max')) {
-        this.applyRect(rec, { left: 0, top: 0, width: this.layer.clientWidth, height: this.layer.clientHeight });
-      } else {
-        const w = Math.min(rec.root.offsetWidth, this.layer.clientWidth);
-        const h = Math.min(rec.root.offsetHeight, this.layer.clientHeight);
-        const left = clamp(rec.root.offsetLeft, 0, Math.max(0, this.layer.clientWidth - w));
-        const top = clamp(rec.root.offsetTop, 0, Math.max(0, this.layer.clientHeight - h));
-        this.applyRect(rec, { left, top, width: w, height: h });
+  readRect(rec) {
+    const { left, top, width, height } = rec.root.style;
+    return { left: parseFloat(left), top: parseFloat(top), width: parseFloat(width), height: parseFloat(height) };
+  }
+
+  layoutWindow(rec) {
+    const compact = isMobile();
+    const w = this.layer.clientWidth;
+    const h = this.layer.clientHeight;
+    if (compact && !rec.compact && !rec.maxed) rec.prevRect = this.readRect(rec);
+    rec.root.classList.toggle('compact', compact);
+    rec.root.classList.toggle('max', compact || rec.maxed);
+    if (compact || rec.maxed) {
+      this.applyRect(rec, { left: 0, top: 0, width: w, height: h });
+    } else {
+      let rect = rec.prevRect || this.readRect(rec);
+      if (rec.restoreSize) {
+        const width = Math.min(rec.def.width || 960, w - 24);
+        const height = Math.min(rec.def.height || 640, h - 24);
+        rect = { width, height, left: (w - width) / 2, top: (h - height) / 2 };
+        rec.restoreSize = false;
       }
+      const width = Math.min(rect.width, w);
+      const height = Math.min(rect.height, h);
+      this.applyRect(rec, {
+        width, height,
+        left: clamp(rect.left, 0, Math.max(0, w - width)),
+        top: clamp(rect.top, 0, Math.max(0, h - height)),
+      });
+      rec.prevRect = null;
+    }
+    rec.compact = compact;
+  }
+
+  handleViewportResize() {
+    this.windows.forEach((rec) => {
+      this.layoutWindow(rec);
       rec.instance?.onResize?.();
     });
   }

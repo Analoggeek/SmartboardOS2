@@ -1,7 +1,7 @@
 {
-  "name": "SmartBoardOS — Interactive Classroom Board",
+  "name": "SmartBoardOS \u2014 Interactive Classroom Board",
   "short_name": "SmartBoardOS",
-  "description": "A teachers’ hub in your browser: pen-pressure whiteboard with palm rejection, PDF presenting, 3D models, a safe class browser that sends anything to the board, class tools and PDF export. Works offline.",
+  "description": "An offline classroom workspace with a pressure-sensitive whiteboard, PDF Studio, lesson notes and class tools.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
@@ -56,19 +56,6 @@
       ]
     },
     {
-      "name": "Class Browser",
-      "short_name": "Browser",
-      "description": "Safe web + send pages to the board",
-      "url": "./?app=browser",
-      "icons": [
-        {
-          "src": "./assets/icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
-    },
-    {
       "name": "Present a PDF",
       "short_name": "PDF",
       "description": "Open a PDF and present it",
@@ -85,18 +72,6 @@
       "short_name": "Tools",
       "description": "Picker, timer, scoreboard",
       "url": "./?app=class",
-      "icons": [
-        {
-          "src": "./assets/icons/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
-      "name": "Open 3D Lab",
-      "short_name": "3D",
-      "description": "3D models for teaching",
-      "url": "./?app=lab3d",
       "icons": [
         {
           "src": "./assets/icons/icon-192.png",

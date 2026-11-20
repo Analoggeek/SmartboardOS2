@@ -8,15 +8,13 @@ import * as Whiteboard from './apps/whiteboard.js';
 import * as PDFApp from './apps/pdf.js';
 import * as MediaApp from './apps/media.js';
 import * as ClassApp from './apps/class.js';
-import * as Lab3D from './apps/lab3d.js';
 import * as NotesApp from './apps/notes.js';
 import * as CalculatorApp from './apps/calculator.js';
 import * as SettingsApp from './apps/settings.js';
-import * as BrowserApp from './apps/browser.js';
 import { capturePhoto } from './camera.js';
 
-const VERSION = '1.3.0';
-const LAB3D_COUNT = 14;
+const DESKTOP = location.protocol === 'sbos:';
+const VERSION = (DESKTOP && new URLSearchParams(location.search).get('version')) || '1.4.0';
 const WALLS = {
   aurora: ['rgba(99,102,241,.26)', 'rgba(168,85,247,.22)', 'rgba(34,211,238,.20)'],
   sunset: ['rgba(249,115,22,.28)', 'rgba(244,63,94,.24)', 'rgba(168,85,247,.24)'],
@@ -26,16 +24,12 @@ const WALLS = {
 
 const APPS = [
   {
-    id: 'whiteboard', name: 'Whiteboard', tagline: 'Draw, write & export', icon: 'board',
+    id: 'whiteboard', startMaximized: true, name: 'Whiteboard', tagline: 'Draw, write & export', icon: 'board',
     color: '#6366f1', soft: 'rgba(99,102,241,.16)', width: 1120, height: 720, mount: Whiteboard.mount,
   },
   {
     id: 'pdf', name: 'PDF Studio', tagline: 'Present & annotate PDFs', icon: 'pdf',
     color: '#ef4444', soft: 'rgba(239,68,68,.14)', width: 1040, height: 720, mount: PDFApp.mount,
-  },
-  {
-    id: 'browser', name: 'Class Browser', tagline: 'Safe web + send to board', icon: 'globe',
-    color: '#0ea5e9', soft: 'rgba(14,165,233,.16)', width: 1060, height: 720, mount: BrowserApp.mount,
   },
   {
     id: 'media', name: 'Media', tagline: 'Images on device', icon: 'image',
@@ -44,10 +38,6 @@ const APPS = [
   {
     id: 'class', name: 'Class Tools', tagline: 'Picker, timer, scores', icon: 'users',
     color: '#f59e0b', soft: 'rgba(245,158,11,.16)', width: 880, height: 660, mount: ClassApp.mount,
-  },
-  {
-    id: 'lab3d', name: '3D Lab', tagline: '3D models for teaching', icon: 'cube3d',
-    color: '#8b5cf6', soft: 'rgba(139,92,246,.16)', width: 1000, height: 680, mount: Lab3D.mount,
   },
   {
     id: 'notes', name: 'Notes', tagline: 'Lesson plans & reminders', icon: 'note',
@@ -62,8 +52,7 @@ const APPS = [
     color: '#64748b', soft: 'rgba(100,116,139,.18)', width: 640, height: 700, mount: SettingsApp.mount,
   },
 ];
-const DOCK_ORDER = ['whiteboard', 'pdf', 'browser', 'lab3d', 'media', 'class', 'notes', 'calculator', 'settings'];
-const QUICK = ['whiteboard', 'browser', 'pdf', 'lab3d', 'class'];
+const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'settings'];
 
 /* =========================================================
    system
@@ -128,7 +117,7 @@ function renderDock() {
     const app = wm.apps.get(id);
     if (!app) return;
     const item = el('button', {
-      class: 'dock-item', title: `${app.name} — ${app.tagline}`,
+      class: 'dock-item', 'aria-label': app.name, title: `${app.name} — ${app.tagline}`,
       onclick: () => {
         if (wm.isOpen(id) && wm.isMinimized(id)) wm.toggleMinimize(id, false);
         else if (wm.isOpen(id)) wm.toggleMinimize(id, true);
@@ -158,7 +147,7 @@ function updateDockState() {
 function renderLaunch() {
   const grid = $('#launch-grid');
   grid.innerHTML = '';
-  QUICK.forEach((id) => {
+  DOCK_ORDER.forEach((id) => {
     const app = wm.apps.get(id);
     const card = el('button', { class: 'launch-card', style: { '--card-color': app.color, '--card-soft': app.soft }, onclick: () => wm.open(id) },
       el('span', { class: 'launch-icon', html: icon(app.icon) }),
@@ -181,27 +170,11 @@ function renderLaunch() {
 }
 
 /* =========================================================
-   3D micro-interactions (tilt, parallax, hero cube)
+   Pointer effects (tilt and parallax)
    ========================================================= */
-const TILT_TARGETS = '.launch-card, .widget, .stat, .tips-card, .lab3d-model, .dock-item';
+const TILT_TARGETS = '.launch-card, .widget, .stat, .tips-card, .dock-item';
 
-function buildHeroCube() {
-  const cube = $('#hero-cube');
-  if (!cube) return;
-  const faces = [
-    { cls: 'front', icon: 'board' },
-    { cls: 'back', icon: 'pdf' },
-    { cls: 'right', icon: 'cube3d' },
-    { cls: 'left', icon: 'users' },
-    { cls: 'top', icon: 'sparkles' },
-    { cls: 'bottom', icon: 'settings' },
-  ];
-  cube.innerHTML = faces
-    .map((f) => `<div class="cube-face ${f.cls}"><span class="cube-ic">${icon(f.icon)}</span></div>`)
-    .join('');
-}
-
-function init3D() {
+function initPointerEffects() {
   let active = null;
   let frame = 0;
 
@@ -215,7 +188,7 @@ function init3D() {
   };
 
   document.addEventListener('pointermove', (e) => {
-    if (getSettings().motion === false) return;
+    if (e.pointerType !== 'mouse' || getSettings().motion === false || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     if (!frame) {
       frame = requestAnimationFrame(() => {
         frame = 0;
@@ -261,7 +234,7 @@ const TOOLBOX = [
       if (shot) wm.open('whiteboard', { image: shot, title: 'Camera photo' });
     } },
   { icon: 'file-plus', label: 'New page', run: () => wm.open('whiteboard', { addPage: true }) },
-  { icon: 'globe', label: 'Browser', run: () => wm.open('browser') },
+  { icon: 'cursor', label: 'Select', run: () => wm.open('whiteboard', { tool: 'select' }) },
 ];
 
 function renderToolbox() {
@@ -288,9 +261,7 @@ function renderActivity() {
     el('div', { class: 'activity-row' }, el('span', { text: 'Board pages' }), el('b', { text: String(pages) })),
     el('div', { class: 'activity-row' }, el('span', { text: 'Board objects' }), el('b', { text: String(objs) })),
     el('div', { class: 'activity-row' }, el('span', { text: 'Last autosave' }), el('b', { text: saved })),
-    el('div', { class: 'activity-row' }, el('span', { text: '3D models ready' }), el('b', { text: String(LAB3D_COUNT) })),
     el('div', { class: 'activity-actions' },
-      el('button', { class: 'mini-btn', text: 'Open 3D Lab', onclick: () => wm.open('lab3d') }),
       el('button', { class: 'mini-btn', text: 'Export board PDF', onclick: () => exportBoardPDF() })
     )
   );
@@ -335,7 +306,7 @@ function paletteItems() {
     { icon: 'note', title: 'Quick note', sub: 'Jot something down instantly', hint: 'Action', run: () => wm.open('notes', { new: true }) },
     { icon: 'users', title: 'Pick a random student', sub: 'Open class tools', hint: 'Action', run: () => wm.open('class') },
     { icon: 'moon', title: 'Toggle theme', sub: 'Switch between dark and light', hint: 'Action', run: () => { const s = settings(); saveSettings({ theme: s.theme === 'light' ? 'dark' : 'light' }); applyTheme(); } },
-    { icon: 'download', title: 'Install SmartBoardOS', sub: 'Add the app to your device', hint: 'Action', run: () => installApp() },
+    ...(!DESKTOP ? [{ icon: 'download', title: 'Install web app', sub: 'Add the app to your device', hint: 'Action', run: installApp }] : []),
     { icon: 'fullscreen', title: 'Fullscreen', sub: 'Toggle fullscreen mode', hint: 'Action', run: () => toggleFullscreen() },
     { icon: 'settings', title: 'Settings', sub: 'Appearance, classroom & data', hint: 'Action', run: () => wm.open('settings') },
   ];
@@ -479,7 +450,7 @@ async function boot() {
   setBoot(18, 'Loading display driver…');
 
   renderDock(); renderLaunch();
-  buildHeroCube(); init3D();
+  initPointerEffects();
   const widgets = initWidgets($('#widgets'), { onOpenApp: (id) => wm.open(id) });
   $('#btn-widget-add').addEventListener('click', () => widgets.openPicker());
 
@@ -508,12 +479,12 @@ async function boot() {
   setInterval(applyClock, 1000);
   setInterval(updateStats, 20000);
   window.addEventListener('keydown', onGlobalKey);
-  window.addEventListener('online', () => toast('Back online', 'ok', 1600));
-  window.addEventListener('offline', () => toast('Offline — the app still works', 'info', 2200));
+  if (!DESKTOP) window.addEventListener('online', () => toast('Back online', 'ok', 1600));
+  if (!DESKTOP) window.addEventListener('offline', () => toast('Offline — the app still works', 'info', 2200));
 
   // PWA — register right away so the app is installable + offline-ready
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch((e) => console.warn('SW failed', e));
   }
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -560,6 +531,11 @@ window.__sbos = {
   applyMotion,
   applyGreeting,
   applyClock,
+  desktop: DESKTOP,
+  saveWork: async () => {
+    const results = await Promise.all([...wm.windows.values()].map(({ instance }) => instance?.save?.()));
+    if (results.includes(false)) throw new Error('Some classroom data could not be saved');
+  },
   install: installApp,
   open: (id, p) => wm.open(id, p),
   toast,

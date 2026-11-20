@@ -1,13 +1,16 @@
 {
   "name": "smartboardos",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
-  "description": "SmartBoardOS \u2014 a full interactive whiteboard operating system for classrooms, built with vanilla JS and deployable on GitHub Pages.",
+  "description": "SmartBoardOS — an offline whiteboard and classroom workspace.",
   "scripts": {
-    "dev": "npx --yes serve . -l 5173",
-    "start": "npx --yes serve . -l 5173",
-    "publish": "bash scripts/publish.sh"
+    "dev": "node scripts/preview.cjs",
+    "start": "node scripts/preview.cjs",
+    "desktop": "electron .",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg --publish never",
+    "test": "node --test"
   },
   "keywords": [
     "whiteboard",
@@ -17,5 +20,11 @@
     "pdf",
     "teacher"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "main": "desktop/main.cjs",
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  },
+  "author": "SmartBoardOS contributors"
 }

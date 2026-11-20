@@ -2,6 +2,7 @@
 import { el, toast, pickFiles, clamp, relTime, debounce } from '../utils.js';
 import { icon } from '../icons.js';
 import { idb } from '../db.js';
+import { mount as mountBoard } from './whiteboard.js';
 
 const pdfjsLib = window.pdfjsLib;
 if (pdfjsLib) {
@@ -16,6 +17,8 @@ export function mount({ root, params, api }) {
   let rotation = 0;
   let renderTask = null;
   let docName = '';
+  let annotationSession;
+  let closed = false;
 
   /* ---------- dom ---------- */
   const pageCanvas = el('canvas', { class: 'pdf-page-canvas' });
@@ -37,16 +40,24 @@ export function mount({ root, params, api }) {
   const pageTotal = el('span', { style: { fontSize: '12px', color: 'var(--text-3)' }, text: '/ 0' });
   const zoomLabel = el('button', { class: 'tool-btn ghost', text: '100%', title: 'Fit width', onclick: () => { fitMode = 'width'; renderCurrent(); } });
 
-  const toolbar = el('div', { class: 'app-toolbar' },
+  const annotateBtn = el('button', { class: 'tool-btn ghost', html: `${icon('pen')}<span>Write on PDF</span>`,
+    title: 'Write on current PDF page', onclick: openAnnotation });
+  const annotateBar = el('div', { class: 'app-toolbar pdf-annotation-bar' },
+    el('button', { class: 'tool-btn ghost', html: `${icon('chevron-left')}<span>Back to reading</span>`, onclick: closeAnnotation }),
+    el('span', { class: 'pdf-annotation-label', text: '' }));
+  const annotateHost = el('div', { class: 'pdf-annotation-host' });
+  const annotatePanel = el('div', { class: 'pdf-annotation-panel', hidden: true }, annotateBar, annotateHost);
+  const toolbar = el('div', { class: 'app-toolbar pdf-toolbar' },
+    annotateBtn,
     el('button', { class: 'tool-btn', html: icon('folder'), title: 'Open PDF', onclick: openPicker }),
     el('div', { class: 'sep' }),
     el('button', { class: 'tool-btn', html: icon('chevron-left'), title: 'Previous page', onclick: () => go(pageNum - 1) }),
     pageInput, pageTotal,
     el('button', { class: 'tool-btn', html: icon('chevron-right'), title: 'Next page', onclick: () => go(pageNum + 1) }),
     el('div', { class: 'sep' }),
-    el('button', { class: 'tool-btn', html: icon('minus'), title: 'Zoom out', onclick: () => { fitMode = 'free'; scale = clamp(scale - 0.2, 0.35, 4); renderCurrent(); } }),
+    el('button', { class: 'tool-btn', html: icon('minus'), title: 'Zoom out', onclick: () => { fitMode = 'free'; scale = clamp(scale / 1.25, 0.1, 4); renderCurrent(); } }),
     zoomLabel,
-    el('button', { class: 'tool-btn', html: icon('plus'), title: 'Zoom in', onclick: () => { fitMode = 'free'; scale = clamp(scale + 0.2, 0.35, 4); renderCurrent(); } }),
+    el('button', { class: 'tool-btn', html: icon('plus'), title: 'Zoom in', onclick: () => { fitMode = 'free'; scale = clamp(scale * 1.25, 0.1, 4); renderCurrent(); } }),
     el('button', { class: 'tool-btn', html: icon('rotate'), title: 'Rotate', onclick: () => { rotation = (rotation + 90) % 360; renderCurrent(); } }),
     el('div', { class: 'sep' }),
     el('button', { class: 'tool-btn ghost', html: `${icon('board')}<span>Send to board</span>`, title: 'Send current page to whiteboard', onclick: sendToBoard }),
@@ -55,7 +66,7 @@ export function mount({ root, params, api }) {
 
   const main = el('div', { class: 'pdf-main' }, view, status);
   const wrap = el('div', { class: 'pdf-wrap' }, side, main);
-  const app = el('div', { class: 'app' }, toolbar, wrap);
+  const app = el('div', { class: 'app' }, toolbar, wrap, annotatePanel);
   root.append(app);
 
   /* ---------- file handling ---------- */
@@ -84,9 +95,11 @@ export function mount({ root, params, api }) {
   }
 
   async function loadBuffer(buf, name = 'Document.pdf') {
+    if (closed) return;
+    await closeAnnotation();
     if (!pdfjsLib) { toast('PDF engine not available', 'err'); return; }
     if (doc) { try { doc.destroy(); } catch { /* noop */ } }
-    doc = await pdfjsLib.getDocument({ data: buf }).promise;
+    doc = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
     docName = name;
     pageNum = 1;
     api.setTitle(`PDF · ${name}`);
@@ -111,9 +124,11 @@ export function mount({ root, params, api }) {
       const base = page.getViewport({ scale: 1, rotation });
       let targetScale = scale;
       if (fitMode === 'width') {
-        const avail = Math.max(240, view.clientWidth - 36);
+        const padding = getComputedStyle(view);
+        const avail = Math.max(1, view.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight));
         targetScale = avail / base.width;
       }
+      scale = targetScale;
       const vp = page.getViewport({ scale: targetScale, rotation });
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       pageCanvas.width = Math.floor(vp.width * dpr);
@@ -174,21 +189,70 @@ export function mount({ root, params, api }) {
   }
 
   /* ---------- actions ---------- */
+  async function pageImage(source, n, angle) {
+    const page = await source.getPage(n);
+    const base = page.getViewport({ scale: 1, rotation: angle });
+    const vp = page.getViewport({ scale: Math.min(2, 2400 / Math.max(base.width, base.height)), rotation: angle });
+    const c = el('canvas');
+    c.width = Math.max(1, Math.floor(vp.width));
+    c.height = Math.max(1, Math.floor(vp.height));
+    const cx = c.getContext('2d');
+    await page.render({ canvasContext: cx, viewport: vp, background: '#ffffff' }).promise;
+    return { src: c.toDataURL('image/jpeg', 0.94), x: 0, y: 0, w: c.width, h: c.height };
+  }
+
+  async function openAnnotation() {
+    if (!doc) { toast('Open a PDF first', 'warn'); return; }
+    if (annotationSession) return;
+    const source = doc;
+    const n = pageNum;
+    const angle = rotation;
+    const key = `pdf-ink:${source.fingerprints[0]}:${n}:${angle}`;
+    const mountPoint = el('div', { class: 'pdf-annotation-board' });
+    const session = annotationSession = { mountPoint };
+    annotateBtn.disabled = true;
+    try {
+      const image = await pageImage(source, n, angle);
+      if (annotationSession !== session || closed || doc !== source || n !== pageNum || angle !== rotation) return;
+      annotatePanel.hidden = false;
+      toolbar.hidden = wrap.hidden = true;
+      annotateBar.querySelector('.pdf-annotation-label').textContent = `Page ${n} · Ink saved on this device`;
+      annotateHost.append(mountPoint);
+      const board = await mountBoard({ root: mountPoint, api, annotation: { key, image } });
+      if (annotationSession !== session || closed) board.onClose();
+      else session.board = board;
+    } catch (error) {
+      console.warn(error);
+      if (annotationSession === session) {
+        await closeAnnotation();
+        toast('Could not open annotation mode', 'err');
+      }
+    } finally {
+      if (!session.board && annotationSession === session) annotationSession = null;
+      if (!annotationSession) annotateBtn.disabled = false;
+    }
+  }
+
+  async function closeAnnotation() {
+    const session = annotationSession;
+    if (!session) return;
+    annotationSession = null;
+    annotatePanel.hidden = true;
+    toolbar.hidden = wrap.hidden = false;
+    const saved = session.board?.onClose();
+    session.mountPoint.remove();
+    await saved;
+    annotateBtn.disabled = false;
+    if (!closed) renderCurrent();
+  }
+
   async function sendToBoard() {
     if (!doc) { toast('Open a PDF first', 'warn'); return; }
     try {
-      const page = await doc.getPage(pageNum);
-      const vp = page.getViewport({ scale: 2 });
-      const c = el('canvas');
-      c.width = Math.floor(vp.width);
-      c.height = Math.floor(vp.height);
-      const cx = c.getContext('2d');
-      cx.fillStyle = '#fff';
-      cx.fillRect(0, 0, c.width, c.height);
-      await page.render({ canvasContext: cx, viewport: vp }).promise;
-      const dataURL = c.toDataURL('image/jpeg', 0.92);
-      api.open('whiteboard', { image: dataURL, asBackground: true, title: `${docName} · p${pageNum}` });
-      toast(`Page ${pageNum} sent to whiteboard`, 'ok');
+      const n = pageNum;
+      const { src } = await pageImage(doc, n, rotation);
+      if (closed) return;
+      api.open('whiteboard', { image: src, asBackground: true, newPage: true, title: `${docName} · p${n}` });
     } catch (e) {
       console.error(e);
       toast('Could not send page to board', 'err');
@@ -229,7 +293,7 @@ export function mount({ root, params, api }) {
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hover'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
   drop.addEventListener('drop', (e) => {
-    e.preventDefault(); drop.classList.remove('hover');
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('hover');
     const f = e.dataTransfer?.files?.[0];
     if (f && f.type === 'application/pdf') loadFile(f);
   });
@@ -238,20 +302,28 @@ export function mount({ root, params, api }) {
   });
   const isFocused = () => document.body.contains(root) && root.closest('.win')?.classList.contains('focused');
   const onKey = (e) => {
-    if (!isFocused() || ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+    if (annotationSession || !isFocused() || ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
     if (e.key === 'ArrowRight' || e.key === 'PageDown') go(pageNum + 1);
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(pageNum - 1);
   };
   window.addEventListener('keydown', onKey);
-  const onResize = debounce(() => { if (fitMode === 'width' && doc) renderCurrent(); }, 200);
+  const onResize = debounce(() => { if (fitMode === 'width' && doc && annotatePanel.hidden && !closed) renderCurrent(); }, 200);
   const ro = new ResizeObserver(onResize);
   ro.observe(view);
 
   renderRecents();
+  if (params.file) loadFile(params.file);
 
   return {
     onParams: (p) => { if (p.file) loadFile(p.file); },
     onResize: () => onResize(),
-    onClose: () => { window.removeEventListener('keydown', onKey); ro.disconnect(); try { doc?.destroy(); } catch { /* noop */ } },
+    save: () => annotationSession?.board?.save(),
+    onClose: () => {
+      closed = true;
+      closeAnnotation();
+      window.removeEventListener('keydown', onKey);
+      ro.disconnect();
+      if (doc) doc.destroy().catch(() => {});
+    },
   };
 }

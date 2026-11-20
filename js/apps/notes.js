@@ -37,7 +37,7 @@ export function mount({ root, api }) {
       .slice()
       .sort((a, b) => b.updated - a.updated)
       .forEach((n) => {
-        list.append(el('div', {
+        list.append(el('button', {
           class: `note-item ${n.id === currentId ? 'active' : ''}`,
           onclick: () => { currentId = n.id; renderList(); loadIntoEditor(); },
         },
@@ -102,6 +102,7 @@ export function mount({ root, api }) {
         notes.unshift(n); currentId = n.id; persist(); renderList(); loadIntoEditor();
       }
     },
+    save: () => state.set('notes', notes),
     onClose: () => state.set('notes', notes),
   };
 }

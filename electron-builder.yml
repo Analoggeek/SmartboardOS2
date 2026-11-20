@@ -1,0 +1,37 @@
+appId: com.analoggeek.smartboardos
+productName: SmartBoardOS
+# Only ship the renderer and the desktop entry point. Electron itself is bundled by the builder.
+files:
+  - desktop/*.cjs
+  - index.html
+  - manifest.webmanifest
+  - css/**
+  - js/**
+  - assets/**
+  - vendor/**
+  - LICENSE
+directories:
+  output: dist
+buildDependenciesFromSource: false
+npmRebuild: false
+artifactName: SmartBoardOS-${version}-${os}-${arch}.${ext}
+win:
+  icon: assets/icons/icon-512.png
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+mac:
+  # Ad-hoc signing keeps the ARM build launchable; it is not a publisher signature.
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  icon: assets/icons/icon-512.png
+  target: dmg
+  category: public.app-category.education
+  extendInfo:
+    NSCameraUsageDescription: SmartBoardOS uses the camera only when you choose to add a photo to your board.
