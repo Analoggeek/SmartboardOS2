@@ -1,25 +1,25 @@
-/* Original dimensional artwork for launcher/dock. Faces are drawn as vector geometry, not CSS shadows. */
-const artwork = {
-  whiteboard: `<path d="M22 36 65 25l9 6-43 13z" fill="url(#light)"/><path d="m65 25 9 6v29l-9 7z" fill="url(#side)"/><path d="M22 36 65 25v42L22 77z" fill="url(#face)"/><path d="m26 40 35-9v30l-35 9z" fill="#e8faff"/><path d="M33 57l7-8 6 4 8-10" stroke="#7962ec" stroke-width="3.5" fill="none"/><path d="m44 72 5-2v10l-14 4v-3l9-3z" fill="#9fb6ff"/>`,
-  pdf: `<path d="m30 23 34-8 12 9v48l-7 8-38 4-7-8z" fill="url(#side)"/><path d="m24 26 38-10 14 9v48l-47 10-5-8z" fill="url(#face)"/><path d="m31 32 28-7 9 6v34l-37 9z" fill="#fff5f2"/><path d="m58 25 1 12 10-6" fill="#fbc0b7"/><path d="m37 49 23-6m-23 14 22-6m-22 14 14-4" stroke="#c74757" stroke-width="3" stroke-linecap="round"/>`,
-  media: `<path d="m21 35 39-12 8 5v35L27 77l-7-4z" fill="#245bc0"/><path d="m28 37 43-12 8 6v36L35 81l-7-6z" fill="url(#side)"/><path d="m28 38 44-13v40L28 79z" fill="url(#face)"/><path d="m33 42 34-10v28L33 71z" fill="#bdf2ff"/><path d="m33 68 12-16 7 4 8-14 7 8v10L33 71z" fill="#148ab7"/><circle cx="44" cy="46" r="3.5" fill="#fff3a4"/>`,
-  class: `<path d="m43 16 12-4 5 3v8l-12 5-5-3z" fill="url(#light)"/><path d="m68 25 9-2 6 5-6 9-7-4z" fill="url(#side)"/><ellipse cx="57" cy="54" rx="27" ry="31" transform="rotate(19 57 54)" fill="url(#side)"/><ellipse cx="49" cy="53" rx="27" ry="31" transform="rotate(19 49 53)" fill="url(#face)"/><ellipse cx="49" cy="53" rx="21" ry="25" transform="rotate(19 49 53)" fill="#fff5d0"/><path d="M49 38v16l12 5" fill="none" stroke="#a75a19" stroke-width="4" stroke-linecap="round"/><circle cx="49" cy="54" r="3" fill="#ff8a20"/>`,
-  notes: `<path d="m23 31 44-12 9 7v46L32 85l-9-7z" fill="url(#side)"/><path d="m25 29 43-12v53L25 82z" fill="url(#face)"/><path d="m31 34 30-9v37l-30 9z" fill="#e5feee"/><path d="m38 42 17-5m-17 13 17-5m-17 13 10-3" fill="none" stroke="#268566" stroke-width="2.7" stroke-linecap="round"/><path d="m22 36 8-2m-8 9 8-2m-8 9 8-2m-8 9 8-2" stroke="#edfff6" stroke-width="3" stroke-linecap="round"/>`,
-  calculator: `<path d="m24 29 40-12 10 7v46L32 83l-8-7z" fill="url(#side)"/><path d="m24 30 41-13v49L24 79z" fill="url(#face)"/><path d="m30 35 29-9v13l-29 9z" fill="#f2e4ff"/><path d="m32 55 4-1m7-2 4-1m7-2 4-1m-26 15 4-1m7-2 4-1m7-2 4-1m-26 15 4-1m7-2 4-1m7-2 4-1" stroke="#f2e4ff" stroke-width="4" stroke-linecap="round"/>`,
-  maps: `<path d="m19 45 20-10 16 6 22-10v31L55 73l-16-7-20 10z" fill="url(#side)"/><path d="m19 43 20-10 16 6 22-10v27L55 67l-16-7-20 10z" fill="url(#face)"/><path d="m27 57 10-11 13 8 16-12" stroke="#d7fff9" stroke-width="2.5" fill="none"/><path d="M50 18a14 14 0 0 0-14 14c0 9 14 24 14 24s15-16 15-25A14 14 0 0 0 50 18Z" fill="#ffd59a" stroke="#ae656a" stroke-width="2"/><circle cx="50" cy="31" r="5" fill="#e76a54"/>`,
-  recording: `<path d="m21 37 39-11 14 8v35L32 81l-11-8z" fill="url(#side)"/><path d="m21 37 40-12v38L21 75z" fill="url(#face)"/><path d="m61 43 18-11v31l-18-4z" fill="url(#light)"/><ellipse cx="44" cy="50" rx="12" ry="15" transform="rotate(19 44 50)" fill="#421d58"/><ellipse cx="44" cy="50" rx="8" ry="10" transform="rotate(19 44 50)" fill="#fba9cf"/><ellipse cx="42" cy="47" rx="2.8" ry="4" fill="#fff2f8"/>`,
-  lessons: `<path d="m17 42 38-17 22 10v34L40 84 17 71z" fill="url(#side)"/><path d="m17 41 38-16 22 10-37 17z" fill="url(#light)"/><path d="m17 41 23 11v32L17 71z" fill="url(#face)"/><path d="m40 52 37-17v34L40 84z" fill="url(#face)"/><path d="m33 34 23 11v11l8-4V41L43 30z" fill="#f9f4d5"/><path d="m48 65 17-7v8l-17 7z" fill="#fff0cf"/>`,
-  settings: `<path d="m51 20 9 5 3 8 9 1 6 11-5 8 2 9-8 10-10-1-7 7-12-2-5-8-9-4-3-13 7-7v-9l9-8 10 3z" transform="translate(5 4)" fill="url(#side)"/><path d="m51 20 9 5 3 8 9 1 6 11-5 8 2 9-8 10-10-1-7 7-12-2-5-8-9-4-3-13 7-7v-9l9-8 10 3z" fill="url(#face)"/><circle cx="49" cy="50" r="14" fill="#334a72"/><circle cx="49" cy="50" r="9" fill="#b7c8e9"/>`,
+/* Original launcher icon set: a common rounded tile with distinct, drawn symbols. */
+const art = {
+  whiteboard: ['#b3a9ff','#664be7','#362786','<rect x="19" y="19" width="34" height="26" rx="5"/><path d="m25 39 8-7 6 4 8-9M32 51h8"/>'],
+  pdf: ['#ffbbb5','#dd4e62','#922c51','<path d="M28 17h12l9 9v23a4 4 0 0 1-4 4H27a4 4 0 0 1-4-4V22a5 5 0 0 1 5-5Z"/><path d="M40 17v11h9M29 35h13m-13 7h10"/>'],
+  media: ['#8bdcff','#2675d4','#1b438c','<rect x="19" y="22" width="34" height="29" rx="5"/><circle cx="43" cy="30" r="2.6" fill="#fff" stroke="none"/><path d="m20 45 9-10 7 7 5-4 10 9"/>'],
+  class: ['#ffc89c','#da692b','#943c2c','<path d="M33 17h7m-3 0v5m12 3 3 3"/><circle cx="36" cy="38" r="14"/><path d="M36 30v9l5 3"/><circle cx="36" cy="38" r="1" fill="#fff"/>'],
+  notes: ['#94eab6','#2c9f75','#276354','<rect x="23" y="18" width="29" height="35" rx="5"/><path d="M20 25h8m-8 10h8m-8 10h8m5-16h13m-13 8h13m-13 8h8"/>'],
+  calculator: ['#d9b1ff','#9152d7','#552c8d','<rect x="23" y="17" width="27" height="37" rx="5"/><path d="M29 24h15v7H29z"/><path d="M30 39h2m8 0h2m-12 7h2m8 0h2"/>'],
+  maps: ['#77eadb','#169e9a','#16616e','<circle cx="36" cy="36" r="17"/><ellipse cx="36" cy="36" rx="8" ry="17"/><path d="M20 30h32m-32 12h32"/>'],
+  recording: ['#ffaade','#d4458a','#8a2c65','<rect x="18" y="23" width="27" height="26" rx="6"/><path d="m45 32 10-5v18l-10-5z"/><circle cx="31.5" cy="36" r="5" fill="#fff" stroke="none"/>'],
+  lessons: ['#ffe495','#bd8b36','#836135','<path d="M19 25a4 4 0 0 1 4-4h10l5 5h10a5 5 0 0 1 5 5v15a5 5 0 0 1-5 5H24a5 5 0 0 1-5-5z"/><path d="M20 34h32M28 42h12"/>'],
+  settings: ['#d0e3ff','#627eaf','#354974','<path d="M21 25h30m-30 11h30m-30 11h30"/><circle cx="32" cy="25" r="4" fill="#a9c3ff"/><circle cx="43" cy="36" r="4" fill="#a9c3ff"/><circle cx="29" cy="47" r="4" fill="#a9c3ff"/>'],
 };
-const palette = {
-  whiteboard: ['#adbfff','#5742dc','#25175d'], pdf:['#ffb6a3','#e14b64','#7a243f'], media:['#89ebff','#267ae3','#1b346c'],
-  class:['#ffe09c','#ed8f24','#9c3f16'], notes:['#92f6c6','#28ad6b','#174e49'], calculator:['#e6bbff','#8d47d2','#492b72'],
-  maps:['#91f6de','#24a4a5','#14506f'], recording:['#ffb0db','#dd477a','#5a245e'], lessons:['#fff1a3','#d67b25','#743b24'], settings:['#d7e4fc','#738fb8','#334565'],
-};
-let next = 0;
+let sequence = 0;
 export function appArt(id) {
-  const [light, face, side] = palette[id] || palette.settings;
-  const key = `app-art-${++next}`;
-  const paint = (name, a, b) => `<linearGradient id="${key}-${name}" x2=".8" y2="1"><stop stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient>`;
-  return `<svg class="app-art" viewBox="0 0 96 96" aria-hidden="true" focusable="false"><defs>${paint('light','#ffffff',light)}${paint('face',light,face)}${paint('side',face,side)}</defs><ellipse cx="50" cy="83" rx="30" ry="8" fill="${side}" opacity=".27"/>${(artwork[id] || artwork.settings).replace(/url\(#(light|face|side)\)/g, (_match, part) => `url(#${key}-${part})`)}</svg>`;
+  const [light,base,deep,paths] = art[id] || art.settings;
+  const key = `app-art-${++sequence}`;
+  return `<svg class="app-art" viewBox="0 0 72 72" aria-hidden="true" focusable="false"><defs>
+  <linearGradient id="${key}-base" x2=".9" y2="1"><stop stop-color="${light}"/><stop offset=".63" stop-color="${base}"/><stop offset="1" stop-color="${deep}"/></linearGradient>
+  <linearGradient id="${key}-rim" x2=".6" y2="1"><stop stop-color="#fff" stop-opacity=".72"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient>
+  <linearGradient id="${key}-depth" x2="0" y2="1"><stop stop-color="${base}"/><stop offset="1" stop-color="${deep}"/></linearGradient></defs>
+  <rect x="7" y="10" width="58" height="57" rx="16" fill="url(#${key}-depth)"/><rect x="7" y="6" width="58" height="57" rx="16" fill="url(#${key}-base)" stroke="url(#${key}-rim)"/>
+  <path d="M14 23c0-6 4-10 10-10h15" stroke="#fff" opacity=".17" stroke-linecap="round" fill="none"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.7">${paths}</g></svg>`;
 }

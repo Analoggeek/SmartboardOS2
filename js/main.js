@@ -1,5 +1,8 @@
 /* SmartBoardOS — system bootstrap */
-import { $, el, toast } from './utils.js';
+import { $, el, toast, pickFiles, clamp } from './utils.js';
+import { ACCEPT } from './document-import.js';
+import { templates, templatePreview } from './board-templates.js';
+import { movableControls, resetBoardControls } from './control-layout.js';
 import { appArt } from './app-art.js';
 import { icon, hydrateIcons } from './icons.js';
 import { getSettings, saveSettings } from './db.js';
@@ -114,11 +117,40 @@ function applyGreeting() {
   const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const name = (s.teacherName || '').trim() || 'Teacher';
   $('#hero-greet').textContent = `${part}, ${name}`;
+  $('#home-date').textContent = new Intl.DateTimeFormat(undefined,{ weekday:'short',month:'short',day:'numeric' }).format(new Date());
 }
 
 const appMenu = $('#workspace-menu');
 const appToggle = $('#btn-apps');
 const customize = $('#workspace-custom');
+const shellControls = $('.workspace-controls');
+const boardVisible = () => { const board = wm.windows.get('whiteboard'); return !!board && !board.minimized && board.root.classList.contains('focused'); };
+function placeAppMenu() {
+  if (appMenu.hidden) return;
+  const {left,top,bottom} = shellControls.getBoundingClientRect();
+  const yBelow=bottom+9, height=appMenu.offsetHeight;
+  appMenu.style.left=`${clamp(left,8,Math.max(8,innerWidth-appMenu.offsetWidth-8))}px`;
+  appMenu.style.top=`${clamp(yBelow+height<=innerHeight || top<height+15 ? yBelow : top-height-8,8,Math.max(8,innerHeight-height-8))}px`;
+}
+function selectLauncherTab(board) {
+  $('#workspace-grid').hidden=board;
+  $('#workspace-board-actions').hidden=!board;
+  $('#show-app-grid').setAttribute('aria-pressed',String(!board));
+  $('#show-board-actions').setAttribute('aria-pressed',String(board));
+  placeAppMenu();
+}
+function openDocumentPicker() {
+  closeAppMenu();
+  pickFiles({accept:ACCEPT}).then(([file])=> { if (file) launch('whiteboard',{file}); });
+}
+const boardAction = action => launch('whiteboard',{action});
+const boardActions = [
+  ['grid','Board designs','showTemplates'], ['plus','Add board page','addPage'], ['file','Page overview','showPageMenu'],
+  ['image','Insert image','insertImage'], ['camera','Take board photo','insertPhoto'], ['smile','Stickers','toggleEmoji'],
+  ['settings','Pen & palm','togglePenSettings'], ['users','Class widget','toggleClassWidget'], ['expand','Fit content','fitView'],
+  ['save','Save board','save'], ['pdf','Export board PDF','exportPDF'], ['download','Export page PNG','exportPNG'],
+  ['trash','Clear page ink','clearPage'], ['folder','Previous imports','showImportDialog'],
+];
 function closeAppMenu(focus = false) {
   appMenu.hidden = true;
   appToggle.setAttribute('aria-expanded', 'false');
@@ -135,7 +167,8 @@ function getPins() {
 function appTile(app, menu = false) {
   const art = app.id === 'whiteboard' ? el('img', { src: './assets/icons/icon-192.png', alt: '' }) : el('span', { html: appArt(app.id) });
   return el('button', { class: menu ? 'workspace-tile' : 'workspace-card', type: 'button', 'data-app': app.id, onclick: () => launch(app.id) },
-    el('span', { class: 'workspace-art' }, art), el('span', { class: 'workspace-tile-label' }, el('b', { text: app.name }), !menu && el('small', { text: app.tagline })));
+    el('span', { class: 'workspace-art' }, art), el('span', { class: 'workspace-tile-label' }, el('b', { text: app.name }), !menu && el('small', { text: app.tagline })),
+    !menu && el('span',{class:'home-card-arrow', html:icon('chevron-right'),'aria-hidden':'true'}));
 }
 function renderAppMenu() {
   const pins = getPins();
@@ -149,13 +182,22 @@ function renderAppMenu() {
     })), el('label', { class: 'workspace-start' }, 'Open on startup ', el('select', { class: 'field', 'aria-label': 'Open on startup', onchange: e => saveSettings({ startup: e.target.value }) },
       el('option', { value: 'board', text: 'Whiteboard' }), el('option', { value: 'home', text: 'Home' }))));
   customize.querySelector('select').value = settings().startup === 'home' ? 'home' : 'board';
+  placeAppMenu();
 }
 function renderLaunch() {
-  $('#launch-grid').replaceChildren(...APPS.map(app => appTile(app)));
+  const order = ['whiteboard','lessons','notes','class','maps','media','recording','calculator','settings'];
+  $('#launch-grid').replaceChildren(...order.map(id => appTile(wm.apps.get(id))));
+  $('#home-tool-count').textContent = `${order.length} tools`;
   $('#hero-actions').replaceChildren(
-    el('button', { class: 'btn primary', text: 'Open whiteboard', onclick: () => launch('whiteboard') }),
-    el('button', { class: 'btn', text: 'Import PDF / PPT', onclick: () => launch('whiteboard', { document: true }) }),
-    ...(!DESKTOP ? [el('a', { class: 'btn install-cta', href: './install.html', text: 'Offline installer' })] : []));
+    el('button', { class: 'home-cta primary', html: `${icon('pen')}<span>Open whiteboard</span>`, onclick: () => launch('whiteboard') }),
+    el('button', { class: 'home-cta', html: `${icon('file-plus')}<span>Import PDF / PPT</span>`, onclick: openDocumentPicker }));
+  $('#home-templates').replaceChildren(...['blueprint','cornell','coordinate'].map(id => el('button',{
+    class:'home-template-tile',onclick:()=>launch('whiteboard',{template:id}), 'aria-label':`Add ${templates[id].name} page`
+  },templatePreview(id),el('span',{},el('b',{text:templates[id].name}),el('small',{text:templates[id].detail})),el('span',{class:'home-card-arrow',html:icon('chevron-right'),'aria-hidden':'true'}))));
+  $('#home-templates').append(el('button',{class:'home-all-templates',html:`<span>Explore all board designs</span>${icon('chevron-right')}`,onclick:()=>boardAction('showTemplates')}));
+  if (!DESKTOP) $('#home-footer-links').append(el('a',{href:'./install.html',text:'Get the offline installer'}));
+  $('#workspace-board-actions').replaceChildren(...boardActions.map(([symbol,label,id])=>
+    el('button',{class:'board-action',type:'button',onclick:()=>boardAction(id)},el('span',{html:icon(symbol),'aria-hidden':'true'}),el('b',{text:label}))));
 }
 
 /* =========================================================
@@ -179,7 +221,7 @@ function paletteItems() {
       icon: 'pen', title: 'New whiteboard page', sub: 'Add a fresh page to the board', hint: 'Action',
       run: () => { wm.open('whiteboard'); setTimeout(() => wm.windows.get('whiteboard')?.instance?.addPage?.(), 300); },
     },
-    { icon: 'pdf', title: 'Import PDF / PPT', sub: 'Open a complete document in the whiteboard', hint: 'Action', run: () => launch('whiteboard', { document: true }) },
+    { icon: 'pdf', title: 'Import PDF / PPT', sub: 'Open a complete document in the whiteboard', hint: 'Action', run: openDocumentPicker },
     { icon: 'download', title: 'Export board as PDF', sub: 'Download every page as one PDF', hint: 'Action', run: () => exportBoardPDF() },
     { icon: 'download', title: 'Export board as PNG', sub: 'Save the current page as an image', hint: 'Action', run: () => exportBoardPNG() },
     { icon: 'note', title: 'Quick note', sub: 'Jot something down instantly', hint: 'Action', run: () => wm.open('notes', { new: true }) },
@@ -312,7 +354,7 @@ function onGlobalKey(e) {
   if (e.key === 'Escape' && !palette.backdrop.hidden) { closePalette(); return; }
   if (typing) return;
   if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); wm.open('whiteboard'); return; }
-  if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); launch('whiteboard', { document: true }); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openDocumentPicker(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); wm.open('class'); return; }
   if (e.key.toLowerCase() === 'f' && !mod && !e.repeat) {
     e.preventDefault(); toggleFullscreen();
@@ -336,14 +378,25 @@ async function boot() {
   appToggle.onclick = () => {
     if (!appMenu.hidden) { closeAppMenu(); return; }
     appMenu.hidden = false;
+    selectLauncherTab(false);
     appToggle.setAttribute('aria-expanded','true');
     appMenu.querySelector('.workspace-tile')?.focus({ preventScroll: true });
   };
   $('#btn-customize').onclick = () => {
     customize.hidden = !customize.hidden;
     $('#btn-customize').setAttribute('aria-expanded', String(!customize.hidden));
+    placeAppMenu();
     if (!customize.hidden) customize.querySelector('input')?.focus();
   };
+  const appPosition = movableControls({node:shellControls,handle:$('#move-apps'),bounds:$('#os'),key:'apps',start:()=>({x:6,y:5}),enabled:boardVisible,moved:placeAppMenu});
+  const syncControls = () => { document.body.classList.toggle('teaching-board', boardVisible()); appPosition.reflow(); };
+  wm.onChange(syncControls);
+  document.addEventListener('pointerdown',() => requestAnimationFrame(syncControls));
+  window.addEventListener('resize',placeAppMenu);
+  $('#btn-import').onclick=openDocumentPicker;
+  $('#show-app-grid').onclick=()=>selectLauncherTab(false);
+  $('#show-board-actions').onclick=()=>selectLauncherTab(true);
+  $('#btn-reset-controls').onclick=()=>{ resetBoardControls(); closeAppMenu(true); toast('Apps and toolbox reset to their default positions.', 'ok'); };
   $('#btn-cmd').onclick = () => { closeAppMenu(); openPalette(); };
   $('#btn-theme').onclick = () => { saveSettings({ theme: settings().theme === 'light' ? 'dark' : 'light' }); applyTheme(); };
   $('#btn-fullscreen').onclick = toggleFullscreen;
@@ -382,6 +435,7 @@ async function boot() {
   else if (settings().startup !== 'home') wm.open('whiteboard');
   setBoot(100, 'Welcome');
   requestAnimationFrame(() => {
+    syncControls();
     $('#boot').classList.add('hide');
     const os = $('#os'); os.classList.add('ready'); os.setAttribute('aria-hidden', 'false');
     document.body.classList.add('booted');

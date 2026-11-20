@@ -2,7 +2,10 @@
 import { el, clamp, toast, downloadBlob, downloadURL, pickFiles, fileToDataURL, debounce, uid, beep } from '../utils.js';
 import { createEraserIndex, eraseStroke } from '../eraser.js';
 import { archiveWriter } from '../archive.js';
-import { isDocument } from '../document-import.js';
+import { ACCEPT, isDocument } from '../document-import.js';
+import { MAX_BOARD_PAGES, isBlankBoardPage, insertDocumentPages, readDocumentPages } from '../board-document.js';
+import { BG_NAMES, BG_FILLS, templates, templatePreview, paintBgPattern } from '../board-templates.js';
+import { movableControls } from '../control-layout.js';
 import { icon, iconEl } from '../icons.js';
 import { idb, store } from '../db.js';
 import { createPenTracker, getPenSettings, savePenSettings } from '../pen.js';
@@ -29,9 +32,6 @@ const TOOLS = [
   { id: 'laser', name: 'Laser', icon: 'zap' },
   { id: 'pan', name: 'Pan', icon: 'hand' },
 ];
-const BG_NAMES = { plain: 'Plain', grid: 'Grid', dots: 'Dots', lines: 'Vertical lines', ruled: 'Ruled paper', music: 'Music staves',
-  graph: 'Graph paper', handwriting: 'Handwriting', isometric: 'Isometric', white: 'Whiteboard', chalk: 'Green chalkboard', black: 'Blackboard' };
-const BG_FILLS = { white: '#ffffff', chalk: '#143b31', black: '#101114' };
 const EMOJI_GROUPS = [
   { name: 'Class', list: ['😀', '🙂', '😊', '🤓', '🎓', '👏', '🙋', '✋', '👍', '👎', '💡', '✅', '❌', '❗', '❓', '⭐', '🌟', '🏆', '🎯', '📌'] },
   { name: 'School', list: ['📚', '📖', '📝', '✏️', '🖊️', '📏', '📐', '🧮', '📊', '📈', '🗓️', '⏰', '🎒', '🏫', '🔬', '🔭', '🧪', '⚗️', '🖇️', '📎'] },
@@ -39,14 +39,14 @@ const EMOJI_GROUPS = [
   { name: 'Fun', list: ['🎉', '🎊', '🎈', '🎁', '🏅', '🥇', '⚽', '🏏', '🎨', '🎵', '🎬', '🕹️', '🐶', '🐱', '🦁', '🐘', '🦋', '🌈', '🍎', '🍕'] },
 ];
 
-export async function mount({ root, params = {}, api, annotation }) {
+export async function mount({ root, params = {}, api }) {
   /* ---------------- state ---------------- */
-  const storageKey = annotation?.key || 'current';
-  const archive = archiveWriter(annotation ? storageKey.replace('pdf-ink:', 'pdf-').replaceAll(':', '-') : 'board');
-  let pages = [{ objects: [], bg: annotation ? 'plain' : 'grid', bgImage: annotation?.image || null }];
+  const storageKey = 'current';
+  const archive = archiveWriter('board');
+  let pages = [{ objects: [], bg: 'grid', bgImage: null }];
   let pageIndex = 0;
   let tool = 'pen';
-  let color = annotation || document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff';
+  let color = document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff';
   let size = 4;
   let eraseWhole = false;
   let view = { x: 0, y: 0, scale: 1 };
@@ -67,7 +67,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   let tapInfo = null;
   let selection = null;
   let clipText = '';
-  let replacing = false;
+  let replacing = false, importing, closed = false, importDialog, templateDialog, activeThumbs;
 
   /* ---------------- DOM ---------------- */
   const stage = el('div', { class: 'wb-stage' });
@@ -80,12 +80,12 @@ export async function mount({ root, params = {}, api, annotation }) {
   const boundsCache = new WeakMap();
 
   const emptyHint = el('div', { class: 'wb-empty' },
-    el('div', {}, el('b', { text: 'Board is ready' }), 'Draw, type, or drop an image / PDF page here'));
+    el('div', {}, el('b', { text: 'Board is ready' }), 'Draw, type or drop a PDF, PowerPoint or image'));
   stage.append(emptyHint);
 
   const badgeTool = el('span', { class: 'wb-badge', text: 'Pen' });
   const badgeInfo = el('span', { class: 'wb-badge', text: 'Page 1' });
-  stage.append(el('div', { class: 'wb-status' }, badgeTool, badgeInfo));
+  stage.append(el('div', { class: 'wb-status sr-only', 'aria-live': 'polite' }, badgeTool, badgeInfo));
 
   const zoomLabel = el('button', { class: 'tool-btn', text: '100%', title: 'Reset zoom', onclick: () => { view = { x: 0, y: 0, scale: 1 }; mark(); } });
   const zoomBox = el('div', { class: 'wb-zoom' },
@@ -94,7 +94,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     el('button', { class: 'tool-btn', html: icon('plus'), title: 'Zoom in', onclick: () => zoomBy(1.25) }),
     el('button', { class: 'tool-btn', html: icon('expand'), title: 'Fit to content', onclick: () => fitView() })
   );
-  stage.append(zoomBox);
+
 
   const eraserRing = el('div', {
     style: {
@@ -106,14 +106,12 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   /* toolbar */
   const toolButtons = new Map();
-  const toolGroup = el('div', { class: 'pill-group' });
   TOOLS.forEach((t) => {
     const b = el('button', {
       class: `tool-btn ${t.id === tool ? 'active' : ''}`, title: t.name, 'aria-label': t.name, html: icon(t.icon),
       onclick: () => setTool(t.id),
     });
     toolButtons.set(t.id, b);
-    toolGroup.append(b);
   });
 
   const colorDot = el('span', { style: { width: '16px', height: '16px', borderRadius: '50%', background: color, boxShadow: '0 0 0 2px var(--surface-solid), 0 0 0 3px var(--border-strong)' } });
@@ -149,7 +147,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   function toggleColors(open) {
     colorPop.style.display = open ? 'grid' : 'none';
     colorBtn.setAttribute('aria-expanded', String(open));
-    if (open) toggleBackgrounds(false);
+    if (open) { closePanels(colorPop); placePanel(colorPop); }
   }
   colorBtn.addEventListener('click', () => toggleColors(colorPop.style.display !== 'grid'));
   stage.addEventListener('pointerdown', (e) => {
@@ -167,100 +165,105 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   const undoBtn = el('button', { class: 'tool-btn', title: 'Undo (Ctrl+Z)', html: icon('undo'), onclick: undo });
   const redoBtn = el('button', { class: 'tool-btn', title: 'Redo (Ctrl+Shift+Z)', html: icon('redo'), onclick: redo });
-  const clearBtn = el('button', { class: 'tool-btn', title: 'Clear page', html: icon('trash'), onclick: clearPage });
 
   const pageLabel = el('button', { class: 'tool-btn', text: '1 / 1', title: 'Page overview', onclick: showPageMenu });
   const prevBtn = el('button', { class: 'tool-btn', title: 'Previous page', html: icon('chevron-left'), onclick: () => gotoPage(pageIndex - 1) });
   const nextBtn = el('button', { class: 'tool-btn', title: 'Next page', html: icon('chevron-right'), onclick: () => gotoPage(pageIndex + 1) });
-  const addPageBtn = el('button', { class: 'tool-btn', title: 'Add page', html: icon('file-plus'), onclick: addPage });
-  const delPageBtn = el('button', { class: 'tool-btn', title: 'Delete page', html: icon('x'), onclick: deletePage });
 
-  const bgMenu = el('div', { class: 'wb-pop wb-bg-menu', hidden: true },
-    el('div', { class: 'pop-head' }, el('b', { text: 'Board backgrounds' })));
-  const bgList = el('div', { class: 'wb-bg-list' });
-  const bgPicker = el('input', { type: 'color', 'aria-label': 'Custom board colour', value: '#17314b' });
-  bgMenu.append(bgList, el('label', { class: 'set-row' }, 'Custom board colour', bgPicker)); stage.append(bgMenu);
-  bgPicker.oninput = () => {
-    page().bgColor = bgPicker.value;
-    mark(); scheduleSave();
-  };
-  const bgBtn = el('button', { class: 'tool-btn', title: 'Change background', 'aria-expanded': 'false',
-    html: `${icon('grid')}<span>Board style</span>`, onclick: () => toggleBackgrounds(bgMenu.hidden) });
-  function toggleBackgrounds(open) {
-    bgMenu.hidden = !open;
-    bgBtn.setAttribute('aria-expanded', String(open));
-    if (!open) return;
-    toggleColors(false);
-    bgPicker.value = page().bgColor || '#17314b';
-    bgList.replaceChildren(...Object.entries(BG_NAMES).map(([id, name]) => el('button', {
-      class: `wb-bg-option ${page().bg === id ? 'active' : ''}`, text: name,
-      'aria-pressed': String(page().bg === id), onclick: () => {
-        page().bg = id; delete page().bgColor;
-        if (id === 'white' && color === '#ffffff') setColor('#0f172a');
-        if ((id === 'black' || id === 'chalk') && color === '#0f172a') setColor('#ffffff');
-        toggleBackgrounds(false); bgBtn.focus(); mark(); scheduleSave();
-      },
-    })));
-  }
-  stage.addEventListener('pointerdown', (e) => { if (!bgMenu.contains(e.target)) toggleBackgrounds(false); });
-  const targetWindow = root.closest('.win');
-  if (!annotation) targetWindow?.classList.add('board-workspace');
-  const presentBtn = el('button', { class: 'tool-btn wb-present', title: 'Toggle screen fullscreen (F)', 'aria-label': 'Toggle screen fullscreen', html: icon('fullscreen'), onclick: () => window.__sbos.toggleFullscreen() });
-
-  const imgBtn = el('button', { class: 'tool-btn', title: 'Insert image', html: icon('image'), onclick: insertImage });
-  const emojiBtn = el('button', { class: 'tool-btn', title: 'Emoji & stickers', html: icon('smile') });
-  const camBtn = el('button', { class: 'tool-btn', title: 'Take a photo with the camera', html: icon('camera'), onclick: () => insertPhoto() });
-  const penBtn = el('button', { class: 'tool-btn', title: 'Pen, pressure & palm rejection', html: icon('settings') });
-  const floatBtn = el('button', { class: 'tool-btn', title: 'Floating toolbox (stays on screen while presenting)', html: icon('sparkles') });
-  const pngBtn = el('button', { class: 'tool-btn', title: 'Export PNG', html: icon('download'), onclick: exportPNG });
-  const pdfBtn = el('button', { class: 'tool-btn', title: 'Export PDF', html: icon('pdf'), onclick: exportPDF });
-  const saveBtn = el('button', { class: 'tool-btn', title: 'Save board', html: icon('save'), onclick: () => { saveSession(true); } });
-  const exportBtn = el('button', { class: 'tool-btn', title: 'Export & save', html: `${icon('download')}<span>Export</span>` });
-
-  const importBtn = !annotation && el('button', { class: 'tool-btn wb-import', title: 'Import a complete PDF or PowerPoint', html: `${icon('folder')}<span>Import PDF / PPT</span>`, onclick: () => openDocument() });
-  const recordBtn = !annotation && el('button', { class: 'tool-btn', title: 'Camera and recording layout', html: `${icon('camera')}<span>Camera</span>`, onclick: () => api.open('recording') });
-  const mini = annotation ? null : classroomWidget(() => api.open('class'));
-  const classBtn = mini && el('button', { class: 'tool-btn', title: 'Toggle classroom tools widget', html: `${icon('timer')}<span>Class tools</span>`, 'aria-expanded': 'false', onclick: () => { mini.toggle(); classBtn.setAttribute('aria-expanded', String(!mini.node.hidden)); } });
-
-  const toolbar = el('div', { class: 'app-toolbar wb-toolbar', style: { position: 'relative' } },
-    importBtn, classBtn, recordBtn, presentBtn, colorBtn, annotation ? null : bgBtn, sizeInput,
-    el('div', { class: 'sep' }), toolGroup,
-    el('div', { class: 'sep' }),
-    eraseMode, undoBtn, redoBtn, clearBtn,
-    el('div', { class: 'sep' }),
-    annotation ? null : [prevBtn, pageLabel, nextBtn, addPageBtn, delPageBtn],
-    el('div', { class: 'sep' }),
-    penBtn, annotation ? null : floatBtn,
-    el('div', { class: 'sep' }),
-    imgBtn, camBtn, emojiBtn, exportBtn
-  );
-
-  const app = el('div', { class: 'app wb-app' }, toolbar, stage);
+  root.closest('.win')?.classList.add('board-workspace');
+  const toolButton = (name, text, action) => el('button', { class: 'tool-btn', type: 'button', title: text, 'aria-label': text, html: icon(name), onclick: action });
+  const grip = el('button', { class: 'tool-btn control-grip', type: 'button', title: 'Move toolbox · drag or use arrow keys (Home resets)', 'aria-label': 'Move drawing toolbox', html: '<span class="grip-dots" aria-hidden="true"></span>' });
+  const moreBtn = toolButton('grid', 'More drawing tools', () => {
+    morePop.hidden = !morePop.hidden; moreBtn.setAttribute('aria-expanded', String(!morePop.hidden));
+    if (!morePop.hidden) { closePanels(morePop); placePanel(morePop); }
+  });
+  moreBtn.setAttribute('aria-expanded','false');
+  const basic = ['select','pen','highlighter','eraser','text'];
+  const primaryTools = basic.map(id => toolButtons.get(id));
+  const morePop = el('div', { class: 'wb-pop wb-context-pop wb-more', hidden: true },
+    el('div', { class: 'pop-head' }, el('b', { text: 'Drawing tools' })),
+    el('div', { class: 'drawing-grid' }, ...TOOLS.filter(t => !basic.includes(t.id)).map(t => toolButtons.get(t.id))),
+    el('label', { class: 'wb-brush-label' }, 'Brush size ', sizeInput), eraseMode, zoomBox);
+  const toolbar = el('div', { class: 'app-toolbar wb-toolbar clean-toolbox', role: 'toolbar', 'aria-label': 'Drawing toolbox' },
+    grip, el('div', { class:'sep' }), ...primaryTools, colorBtn, moreBtn, el('div', { class:'sep' }), undoBtn, redoBtn);
+  const pageStrip = el('div', { class: 'board-page-strip', hidden: true, 'aria-label':'Board pages' }, prevBtn, pageLabel, nextBtn);
+  stage.append(toolbar, morePop, pageStrip);
+  const mini = classroomWidget(() => api.open('class'));
+  stage.append(mini.node);
+  const app = el('div', { class: 'app wb-app' }, stage);
   root.append(app);
-  if (mini) stage.append(mini.node);
-  let embedded, docEpoch = 0;
-  const documentHost = annotation ? null : el('div', { class: 'board-document-host', hidden: true });
-  if (documentHost) root.append(documentHost);
-  async function openDocument(file) {
-    if (!documentHost) return;
-    if (embedded) { embedded.onParams?.({ file }); return; }
-    const epoch = ++docEpoch;
-    app.hidden = true; documentHost.hidden = false;
-    documentHost.replaceChildren(el('div', { class: 'settings', role: 'status', text: 'Opening document tools…' }));
-    try {
-      const { mount } = await import('./pdf.js');
-      if (epoch !== docEpoch || !root.isConnected) return;
-      documentHost.replaceChildren();
-      embedded = mount({ root: documentHost, params: { file }, api: { ...api, setTitle: () => {}, close: closeDocument } });
-    } catch (error) { console.warn(error); closeDocument(); toast('Could not open document tools.', 'err'); }
+  const positioning = movableControls({node: toolbar, handle: grip, bounds:stage, key:'toolbox',
+    start: max => ({x: max.x / 2, y: stage.clientWidth < 760 ? 56 : 5}), moved: () => { if (colorPop.style.display === 'grid') placePanel(colorPop); if (!morePop.hidden) placePanel(morePop); } });
+  function placePanel(panel) {
+    const above = toolbar.offsetTop > stage.clientHeight / 2;
+    const w = panel.offsetWidth || 224;
+    panel.style.left = `${clamp(toolbar.offsetLeft + (toolbar.offsetWidth - w)/2, 8, Math.max(8,stage.clientWidth-w-8))}px`;
+    panel.style.right = 'auto';
+    panel.style.top = above ? 'auto' : `${toolbar.offsetTop + toolbar.offsetHeight + 8}px`;
+    panel.style.bottom = above ? `${stage.clientHeight - toolbar.offsetTop + 8}px` : 'auto';
   }
-  async function closeDocument() {
-    ++docEpoch;
-    const instance = embedded; embedded = null;
-    documentHost.hidden = true;
-    await instance?.onClose?.();
-    if (embedded || !documentHost.hidden) return;
-    documentHost.replaceChildren(); app.hidden = false; requestAnimationFrame(resizeCanvas);
+  function closePanels(keep) {
+    for (const p of [morePop, emojiPop, penPop]) if (p !== keep) p.hidden = true;
+    moreBtn.setAttribute('aria-expanded', String(!morePop.hidden));
+    if (keep !== colorPop) toggleColors(false);
+  }
+  stage.addEventListener('pointerdown', e => { if (e.target === canvas) closePanels(); });
+
+  function askForDocument() {
+    if (importing) return;
+    pickFiles({accept: ACCEPT}).then(([file]) => { if (file) openDocument(file); });
+  }
+  function showImportDialog() {
+    if (closed || importing || importDialog) return;
+    const recent = el('div', {class:'import-recents'});
+    const choose = el('button', {class:'btn primary', text:'Choose PDF or PowerPoint', onclick:() => { importDialog?.remove(); importDialog=null; askForDocument(); } });
+    importDialog = boardDialog('Import to the board', [el('p',{text:'Every page or slide becomes a board page you can draw on. Pick PDF, PPTX, DOCX, TXT or Markdown.'}),choose,recent], () => { importDialog=null; });
+    idb.get('docs','recents').then(list => {
+      if (!recent.isConnected || !Array.isArray(list) || !list.length) return;
+      recent.append(el('b',{text:'From the previous document reader'}), ...list.filter(item=>item.data).map(item=>el('button',{class:'btn',text:item.name,onclick:() => {
+        importDialog?.remove(); importDialog=null; openDocument(new File([item.data],item.name,{type:'application/pdf'}));
+      }})));
+    });
+  }
+  async function openDocument(file) {
+    if (!file) { showImportDialog(); return; }
+    if (closed || importing || replacing) return;
+    const ctrl = importing = new AbortController();
+    const msg = el('p', { class:'board-import-status', role:'status', text:`Opening ${file.name}…` });
+    const progress = el('progress', {'aria-label':'Import progress'});
+    const cancel = el('button', {class:'btn', text:'Cancel import', onclick:() => ctrl.abort()});
+    const overlay = el('div', {class:'board-import-overlay', role:'dialog','aria-modal':'true','aria-label':'Import document'},
+      el('div', {class:'board-import-card'}, el('strong', {text:'Adding pages to your board'}), msg, progress, cancel));
+    stage.append(overlay); cancel.focus({preventScroll:true});
+    let inserted;
+    try {
+      const limit = MAX_BOARD_PAGES - pages.length + Number(pages.length === 1 && isBlankBoardPage(page()));
+      if (limit <= 0) throw new Error('This board is full. Create room or save it as a lesson before importing.');
+      const result = await readDocumentPages(file,{signal:ctrl.signal,limit,progress:(text,n,total) => {
+        msg.textContent = text; progress.max=total; progress.value=n;
+      }});
+      if (ctrl.signal.aborted || closed) return;
+      replacing = true;
+      cancel.disabled = true;
+      msg.textContent = 'Saving all pages on this device…';
+      inserted = insertDocumentPages(pages,pageIndex,result.pages);
+      const payload = {...inserted, version:1, savedAt:Date.now()};
+      if (!await idb.set('boards',storageKey,payload)) throw Error('Could not save the imported pages. Free up some device storage and try again.');
+      if (closed) return;
+      store.del('board-mirror');
+      pages = inserted.pages;
+      gotoPage(inserted.pageIndex);
+      const unit = result.imported === 'slides' ? 'slide' : 'page';
+      toast(`${result.pages.length} ${unit}${result.pages.length===1?'':'s'} added to the board${result.inkCount ? ' · previous ink restored' : ''}`, 'ok', 4600);
+      if (result.warnings?.length) toast(`Some PowerPoint items may differ (${result.warnings.join(', ')}). Use PDF for exact layout.`, 'warn', 7600);
+      if (result.imported === 'text') toast('Text imported. For original formatting, import a PDF copy.', 'info', 5600);
+    } catch (error) {
+      if (!ctrl.signal.aborted && !closed) toast(error.message || 'Could not import that document. The board was not changed.', 'err', 7400);
+    } finally {
+      importing = null; replacing = false;
+      overlay.remove();
+      if (inserted && !closed) scheduleSave();
+    }
   }
 
   /* ---------------- emoji picker ---------------- */
@@ -298,10 +301,10 @@ export async function mount({ root, params = {}, api, annotation }) {
     emojiHint.hidden = !pendingEmoji;
     emojiHint.querySelector('span').textContent = pendingEmoji ? `Tap the board to place ${pendingEmoji}` : '';
   }
-  emojiBtn.addEventListener('click', () => {
-    if (emojiPop.hidden) { buildEmojiPop(); emojiPop.hidden = false; penPop.hidden = true; }
+  function toggleEmoji() {
+    if (emojiPop.hidden) { closePanels(); buildEmojiPop(); emojiPop.hidden = false; placePanel(emojiPop); }
     else emojiPop.hidden = true;
-  });
+  }
 
   /* ---------------- pen & palm panel ---------------- */
   const penPop = el('div', { class: 'wb-pop pen-pop', hidden: true });
@@ -352,102 +355,12 @@ export async function mount({ root, params = {}, api, annotation }) {
       el('p', { class: 'pop-note', text: 'Software palm rejection ignores big or resting contacts and any touch right after the pen. It also works on laptops without native palm rejection.' })
     );
   }
-  penBtn.addEventListener('click', () => {
-    if (penPop.hidden) { buildPenPop(); penPop.hidden = false; emojiPop.hidden = true; }
+  function togglePenSettings() {
+    if (penPop.hidden) { closePanels(); buildPenPop(); penPop.hidden = false; placePanel(penPop); }
     else penPop.hidden = true;
-  });
-  window.addEventListener('sbos:pen', (e) => { penSettings = e.detail; });
-
-  /* ---------------- floating toolbox ---------------- */
-  const floatBar = el('div', { class: 'wb-float', hidden: true });
-  stage.append(floatBar);
-  const floatState = store.get('wbFloat', { x: null, y: null, on: false });
-
-  function buildFloatBar() {
-    floatBar.innerHTML = '';
-    floatBar.append(el('div', { class: 'wb-float-handle', html: icon('grid'), title: 'Drag to move' }));
-    const add = (iconName, title, fn, active) => floatBar.append(el('button', {
-      class: `float-btn${active ? ' active' : ''}`, html: icon(iconName), title, onclick: fn,
-    }));
-    add('cursor', 'Select & move (S)', () => setTool('select'), tool === 'select');
-    add('pen', 'Pen (P)', () => setTool('pen'), tool === 'pen');
-    add('highlighter', 'Highlighter (H)', () => setTool('highlighter'), tool === 'highlighter');
-    add('eraser', 'Eraser (E)', () => setTool('eraser'), tool === 'eraser');
-    add('zap', 'Laser pointer (Z)', () => setTool('laser'), tool === 'laser');
-    add('type', 'Text (T)', () => setTool('text'), tool === 'text');
-    add('smile', 'Emoji', () => { emojiPop.hidden = false; buildEmojiPop(); });
-    floatBar.append(el('div', { class: 'float-sep' }));
-    add('undo', 'Undo', undo);
-    add('chevron-left', 'Previous page', () => gotoPage(pageIndex - 1));
-    add('chevron-right', 'Next page', () => gotoPage(pageIndex + 1));
-    add('plus', 'New page', addPage);
-    floatBar.append(el('div', { class: 'float-sep' }));
-    add('x', 'Hide toolbox', () => toggleFloat(false));
-    if (floatState.x == null) {
-      const small = stage.clientWidth < 700;
-      floatState.x = small ? 8 : Math.max(16, stage.clientWidth - 420);
-      floatState.y = small ? Math.max(64, stage.clientHeight - 104) : 60;
-    }
-    const maxX = Math.max(0, stage.clientWidth - floatBar.offsetWidth);
-    const maxY = Math.max(0, stage.clientHeight - floatBar.offsetHeight);
-    floatState.x = clamp(floatState.x, 0, maxX);
-    floatState.y = clamp(floatState.y, 0, maxY);
-    floatBar.style.left = `${floatState.x}px`;
-    floatBar.style.top = `${floatState.y}px`;
   }
-
-  function toggleFloat(on = floatBar.hidden) {
-    floatBar.hidden = !on;
-    floatState.on = on;
-    store.set('wbFloat', floatState);
-    floatBtn.classList.toggle('active', on);
-    if (on) buildFloatBar();
-  }
-
-  (function makeDraggable() {
-    let drag = null;
-    floatBar.addEventListener('pointerdown', (e) => {
-      const handle = e.target.closest('.wb-float-handle');
-      if (!handle) return;
-      e.preventDefault();
-      const r = stage.getBoundingClientRect();
-      drag = { dx: e.clientX - (r.left + floatBar.offsetLeft), dy: e.clientY - (r.top + floatBar.offsetTop) };
-      floatBar.setPointerCapture(e.pointerId);
-    });
-    floatBar.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const r = stage.getBoundingClientRect();
-      const x = clamp(e.clientX - r.left - drag.dx, 0, Math.max(0, r.width - floatBar.offsetWidth));
-      const y = clamp(e.clientY - r.top - drag.dy, 0, Math.max(0, r.height - floatBar.offsetHeight));
-      floatBar.style.left = `${x}px`;
-      floatBar.style.top = `${y}px`;
-      floatState.x = x; floatState.y = y;
-    });
-    floatBar.addEventListener('pointerup', () => {
-      if (!drag) return;
-      drag = null;
-      store.set('wbFloat', floatState);
-    });
-  })();
-
-  floatBtn.addEventListener('click', () => toggleFloat());
-
-  /* ---------------- export menu ---------------- */
-  const exportMenu = el('div', { class: 'wb-pop export-menu', hidden: true, style: { width: '210px', left: 'auto', right: '10px', top: '48px', maxHeight: 'none' } },
-    el('button', { class: 'menu-item', html: `${icon('image')}<span>Export page as PNG</span>`, onclick: () => { exportMenu.hidden = true; exportPNG(); } }),
-    el('button', { class: 'menu-item', html: `${icon('pdf')}<span>Export board as PDF</span>`, onclick: () => { exportMenu.hidden = true; exportPDF(); } }),
-    el('button', { class: 'menu-item', html: `${icon('save')}<span>Save board now</span>`, onclick: () => { exportMenu.hidden = true; saveSession(true); } })
-  );
-  stage.append(exportMenu);
-  exportBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    exportMenu.hidden = !exportMenu.hidden;
-    emojiPop.hidden = true;
-    penPop.hidden = true;
-  });
-  stage.addEventListener('pointerdown', (e) => {
-    if (!exportMenu.hidden && !e.target.closest('.export-menu') && !e.target.closest('.tool-btn')) exportMenu.hidden = true;
-  });
+  const penListener = e => { penSettings = e.detail; };
+  window.addEventListener('sbos:pen',penListener);
 
   /* ---------------- camera ---------------- */
   async function insertPhoto() {
@@ -469,12 +382,13 @@ export async function mount({ root, params = {}, api, annotation }) {
   function setTool(id) {
     tool = id;
     eraseMode.hidden = id !== 'eraser';
-    toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
+    toolButtons.forEach((b, k) => { b.classList.toggle('active', k === id); b.setAttribute('aria-pressed', String(k === id)); });
+    moreBtn.classList.toggle('active', !basic.includes(id));
     badgeTool.textContent = selection && id === 'select' ? `Select · ${selection.type}` : (TOOLS.find((t) => t.id === id)?.name || id);
     canvas.style.cursor = id === 'pan' ? 'grab' : id === 'text' ? 'text' : id === 'eraser' ? 'none' : id === 'select' ? 'default' : 'crosshair';
     if (id !== 'select' && selection) { selection = null; mark(); }
 
-    if (!annotation) api.setTitle(`Whiteboard · ${TOOLS.find((t) => t.id === id)?.name}`);
+    api.setTitle(`Whiteboard · ${TOOLS.find((t) => t.id === id)?.name}`);
   }
   function setColor(c) {
     color = c;
@@ -500,12 +414,14 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (!r.width) return;
     const hasContent = objects.length || page().bgImage;
     if (!hasContent) { view = { x: 0, y: 0, scale: 1 }; zoomLabel.textContent = '100%'; mark(); return; }
-    const b = boundsFor(page(), r.width, r.height);
-    const pad = 36;
-    const scale = clamp(Math.min((r.width - pad * 2) / b.w, (r.height - pad * 2) / b.h), 0.1, 4);
+    const b = isSourcePage(page()) ? page().bgImage : boundsFor(page(), r.width, r.height);
+    const pad = page().bgImage ? 16 : 36;
+    const top = page().bgImage ? (r.width < 760 ? 112 : 65) : pad, bottom = page().bgImage && pages.length > 1 ? 57 : pad;
+    const h = Math.max(40,r.height-top-bottom);
+    const scale = clamp(Math.min((r.width - pad * 2) / b.w, h / b.h), 0.03, 4);
     view.scale = scale;
     view.x = (r.width - b.w * scale) / 2 - b.x * scale;
-    view.y = (r.height - b.h * scale) / 2 - b.y * scale;
+    view.y = top + (h - b.h * scale) / 2 - b.y * scale;
     zoomLabel.textContent = `${Math.round(scale * 100)}%`;
     mark();
   }
@@ -540,13 +456,14 @@ export async function mount({ root, params = {}, api, annotation }) {
     redoBtn.disabled = !future.length;
     prevBtn.disabled = pageIndex <= 0;
     nextBtn.disabled = pageIndex >= pages.length - 1;
-    delPageBtn.disabled = pages.length <= 1;
     pageLabel.textContent = `${pageIndex + 1} / ${pages.length}`;
     badgeTool.textContent = selection && tool === 'select'
       ? `Select · ${selection.type}`
       : (TOOLS.find((t) => t.id === tool)?.name || tool);
-    badgeInfo.textContent = `Page ${pageIndex + 1} · ${objects.length} obj`;
-    emptyHint.style.display = objects.length || page().bgImage ? 'none' : 'grid';
+    pageStrip.hidden = pages.length < 2;
+    pageLabel.setAttribute('aria-label', `Page ${pageIndex + 1} of ${pages.length}. Open page overview`);
+    badgeInfo.textContent = `Page ${pageIndex + 1} · ${objects.length} items`;
+    emptyHint.style.display = objects.length || page().bgImage || templates[page().bg] ? 'none' : 'grid';
   }
 
   /* ---------------- drawing ---------------- */
@@ -565,71 +482,6 @@ export async function mount({ root, params = {}, api, annotation }) {
   function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
-  }
-
-  function paintBgPattern(c, rect, bgMode, light, px = 1) {
-    if (bgMode === 'plain' || BG_FILLS[bgMode]) return;
-    const col = light ? 'rgba(16,24,46,0.10)' : 'rgba(255,255,255,0.085)';
-    c.save();
-    c.strokeStyle = col;
-    c.fillStyle = col;
-    c.lineWidth = px;
-    const x0 = Math.floor(rect.x / 40) * 40;
-    const y0 = Math.floor(rect.y / 40) * 40;
-    const x1 = rect.x + rect.w;
-    const y1 = rect.y + rect.h;
-    if (['graph', 'handwriting', 'isometric'].includes(bgMode)) {
-      c.beginPath();
-      const step = bgMode === 'graph' ? 20 : 36;
-      for (let y = Math.floor(rect.y / step) * step; y < y1; y += step) {
-        c.moveTo(rect.x, y); c.lineTo(x1, y);
-        if (bgMode === 'handwriting') { c.moveTo(rect.x, y + step / 2); c.lineTo(x1, y + step / 2); }
-      }
-      if (bgMode === 'graph') {
-        for (let x = Math.floor(rect.x / step) * step; x < x1; x += step) { c.moveTo(x, rect.y); c.lineTo(x, y1); }
-      } else if (bgMode === 'isometric') {
-        const span = rect.h / Math.sqrt(3);
-        for (let x = Math.floor((rect.x - span) / step) * step; x < x1 + span; x += step) {
-          c.moveTo(x, rect.y); c.lineTo(x + span, y1);
-          c.moveTo(x, rect.y); c.lineTo(x - span, y1);
-        }
-      }
-      c.stroke();
-    } else if (bgMode === 'grid' || bgMode === 'lines') {
-      c.beginPath();
-      for (let x = x0; x < x1; x += 40) { c.moveTo(x, rect.y); c.lineTo(x, y1); }
-      if (bgMode === 'grid') for (let y = y0; y < y1; y += 40) { c.moveTo(rect.x, y); c.lineTo(x1, y); }
-      c.stroke();
-    } else if (bgMode === 'dots') {
-      for (let x = x0; x < x1; x += 40) {
-        for (let y = y0; y < y1; y += 40) {
-          c.beginPath();
-          c.arc(x, y, 1.4 * px, 0, Math.PI * 2);
-          c.fill();
-        }
-      }
-    } else if (bgMode === 'ruled') {
-      c.beginPath();
-      for (let y = y0; y < y1; y += 44) { c.moveTo(rect.x, y); c.lineTo(x1, y); }
-      c.stroke();
-      c.strokeStyle = light ? 'rgba(239,68,68,0.28)' : 'rgba(248,113,113,0.34)';
-      c.beginPath();
-      c.moveTo(72, rect.y);
-      c.lineTo(72, y1);
-      c.stroke();
-    } else if (bgMode === 'music') {
-      c.beginPath();
-      for (let base = Math.floor(rect.y / 96) * 96; base < y1; base += 96) {
-        for (let i = 0; i < 5; i++) {
-          const y = base + i * 14;
-          if (y < rect.y) continue;
-          c.moveTo(rect.x, y);
-          c.lineTo(x1, y);
-        }
-      }
-      c.stroke();
-    }
-    c.restore();
   }
 
   function drawBackground(c, w, h, bgMode, light) {
@@ -654,10 +506,10 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (sceneObjects !== objects || sceneKey !== staticKey || live?.moving || live?.resizing) {
       sceneKey = staticKey; sceneObjects = objects;
       sceneCtx.setTransform(dpr,0,0,dpr,0,0);
-      sceneCtx.fillStyle = pg.bgColor || BG_FILLS[pg.bg] || (light ? '#ffffff' : cssVar('--canvas-bg','#0e1424'));
+      sceneCtx.fillStyle = isSourcePage(pg) ? (light ? '#e1e6f1' : '#202638') : (pg.bgColor || BG_FILLS[pg.bg] || (light ? '#ffffff' : cssVar('--canvas-bg','#0e1424')));
       sceneCtx.fillRect(0,0,w,h);
       sceneCtx.save(); sceneCtx.translate(view.x, view.y); sceneCtx.scale(view.scale, view.scale);
-      drawBackground(sceneCtx,w,h,pg.bg,light);
+      if (!isSourcePage(pg)) drawBackground(sceneCtx,w,h,pg.bg,light);
       if (pg.bgImage) drawBgImage(sceneCtx, pg.bgImage);
       const visible = [-view.x/view.scale,-view.y/view.scale,(w-view.x)/view.scale,(h-view.y)/view.scale];
       for (const o of objects) {
@@ -692,11 +544,12 @@ export async function mount({ root, params = {}, api, annotation }) {
   const drawObject = (context, object) => paintBoardObject(context, object, getImage);
 
   function getImage(src) {
-    if (imgCache.has(src)) return imgCache.get(src);
+    if (imgCache.has(src)) { const hit=imgCache.get(src); imgCache.delete(src); imgCache.set(src,hit); return hit; }
     const img = new Image();
     img.onload = () => { sceneRevision++; mark(); };
     img.src = src;
     imgCache.set(src, img);
+    if (imgCache.size > 20) imgCache.delete(imgCache.keys().next().value);
     return img;
   }
 
@@ -1153,7 +1006,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   stage.addEventListener('drop', async (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (!file) { toast('Drop a local image or PDF file', 'info'); return; }
+    if (importing || !file) return;
     if (file.type.startsWith('image/')) {
       const src = await fileToDataURL(file);
       addImageObject(src);
@@ -1249,31 +1102,84 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (files.length) toast(`${files.length} image${files.length > 1 ? 's' : ''} added`, 'ok');
   }
 
+  function boardDialog(title, children, onClose) {
+    const backdrop = el('div',{class:'modal-backdrop board-dialog'});
+    const prior=document.activeElement;
+    const close = () => { backdrop.remove(); onClose?.(); if (prior?.isConnected) prior.focus({preventScroll:true}); };
+    const button = el('button',{class:'btn',text:'Close',onclick:close});
+    const dialog = el('section',{class:'board-dialog-panel',role:'dialog','aria-modal':'true','aria-label':title},
+      el('header',{},el('h2',{text:title}),button),...children);
+    backdrop.append(dialog);
+    backdrop.addEventListener('click',e=> {if(e.target===backdrop)close();});
+    backdrop.addEventListener('keydown',e=> {
+      if(e.key==='Escape'){e.stopPropagation();close();}
+      if(e.key==='Tab'){
+        const controls=[...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select, a[href]')];
+        if(e.shiftKey && document.activeElement===controls[0]){e.preventDefault();controls.at(-1)?.focus();}
+        if(!e.shiftKey && document.activeElement===controls.at(-1)){e.preventDefault();controls[0]?.focus();}
+      }
+    });
+    document.body.append(backdrop); button.focus(); return backdrop;
+  }
+  function applyBackground(id, newPage) {
+    if (!Object.hasOwn(BG_NAMES,id) || importing || replacing) return;
+    if (newPage && !addPage()) return;
+    if (page().bgImage) { toast('Choose a blank board page for a new background.', 'info'); return; }
+    pushHistory();
+    page().bg=id; delete page().bgColor;
+    usePageInk(); mark(); updateButtons(); scheduleSave();
+  }
+  function showTemplates() {
+    if (templateDialog || importing) return;
+    const create = el('input',{type:'checkbox'}); create.checked = !!page().bgImage;
+    const set = id => { applyBackground(id, create.checked); templateDialog?.remove(); templateDialog=null; };
+    const featured = el('div',{class:'board-template-grid'}, ...Object.entries(templates).map(([id,t])=>
+      el('button',{class:'board-template-choice',onclick:()=>set(id)},templatePreview(id),el('b',{text:t.name}),el('small',{text:t.detail}))));
+    const basics = el('div',{class:'board-background-chips'}, ...Object.entries(BG_NAMES).filter(([id])=>!templates[id]).map(([id,label])=>
+      el('button',{class:`btn${page().bg===id?' primary':''}`,text:label,onclick:()=>set(id)})));
+    const custom = el('input',{type:'color','aria-label':'Custom board colour',value:page().bgColor || '#263a63',onchange:e=>{
+      if (create.checked && !addPage()) return;
+      if (page().bgImage) { toast('Choose a blank page for a custom background.','info'); return; }
+      pushHistory(); page().bgColor=e.target.value; usePageInk(); mark(); updateButtons(); scheduleSave(); templateDialog?.remove();templateDialog=null;
+    }});
+    templateDialog=boardDialog('Board designs',[
+      el('p',{text:'Choose a teaching template or a simple writing surface.'}),
+      el('label',{class:'template-create'},create,'Add as a new board page'),featured,
+      el('h3',{text:'Classic surfaces'}),basics,el('label',{class:'template-create'},custom,'Custom board colour'),
+    ],()=>{ templateDialog=null; });
+  }
+
   /* ---------------- pages ---------------- */
+  const isSourcePage = pg => !!pg.source && !!pg.bgImage;
+  function usePageInk() {
+    const pg = page();
+    if (pg.bgImage || BG_FILLS[pg.bg] || pg.bgColor) {
+      const hex = pg.bgColor || BG_FILLS[pg.bg] || '#ffffff';
+      const lum = [1,3,5].reduce((v,i) => v + parseInt(hex.slice(i,i+2),16),0) / 3;
+      if (lum > 142 && color === '#ffffff') setColor('#0f172a');
+      if (lum < 125 && color === '#0f172a') setColor('#ffffff');
+    } else if (color === '#0f172a' || color === '#ffffff') setColor(document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff');
+  }
   function gotoPage(i) {
     if (i < 0 || i >= pages.length) return;
-    selection = null;
+    const leavingImage = !!pages[pageIndex]?.bgImage;
+    live = null; selection = null;
     pageIndex = i;
     objects = page().objects;
     history = []; future = [];
-    updateButtons();
+    usePageInk(); updateButtons();
+    if (page().bgImage) fitView();
+    else if (leavingImage) { view = {x:0,y:0,scale:1}; }
     mark(); scheduleSave();
   }
   function addPage() {
-    pages.push({ objects: [], bg: page().bg, bgColor: page().bgColor, bgImage: null });
+    if (pages.length >= MAX_BOARD_PAGES) { toast('This board has reached its page limit.', 'warn'); return false; }
+    const source = isSourcePage(page());
+    pages.push({ objects: [], bg: source ? 'grid' : page().bg, bgColor: source ? undefined : page().bgColor, bgImage: null });
     gotoPage(pages.length - 1);
-    toast(`Page ${pages.length} added`, 'ok', 1600);
+    toast(`Page ${pages.length} added`, 'ok', 1600); return true;
   }
-  function deletePage() {
-    if (pages.length <= 1) return;
-    pages.splice(pageIndex, 1);
-    pageIndex = Math.min(pageIndex, pages.length - 1);
-    objects = page().objects;
-    history = []; future = [];
-    updateButtons(); mark(); scheduleSave();
-    toast('Page deleted', 'info', 1600);
-  }
-  function pageThumb(pg) {
+  function pageThumb(pg,images) {
     const W = 168, H = 108;
     const out = document.createElement('canvas');
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1287,7 +1193,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     c.fillStyle = light ? '#f8fafc' : '#0b1120';
     c.fillRect(0, 0, W, H);
     try {
-      const src = renderPageToCanvas(pg, 1.2);
+      const src = renderPageToCanvas(pg, .65, {images});
       const fit = Math.min((W - 10) / src.width, (H - 10) / src.height);
       const w = src.width * fit, h = src.height * fit;
       c.drawImage(src, (W - w) / 2, (H - h) / 2, w, h);
@@ -1299,11 +1205,11 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   let pageOverview;
   function showPageMenu() {
-    pageOverview?.remove();
+    pageOverview?.remove(); activeThumbs?.disconnect();
     const grid = el('div', { class: 'wb-pages-grid' });
     pages.forEach((pg, i) => {
       const card = el('div', { class: `wb-page-card${i === pageIndex ? ' active' : ''}` },
-        pageThumb(pg),
+        el('div',{class:'wb-page-preview','data-thumb':String(i)}),
         el('div', { class: 'wb-page-meta' },
           el('b', { text: `Page ${i + 1}${pg.title ? ` · ${pg.title}` : ''}` }),
           el('small', { text: `${pg.objects.length} item${pg.objects.length === 1 ? '' : 's'}${pg.bgImage ? ' · source' : ''}` })
@@ -1339,9 +1245,17 @@ export async function mount({ root, params = {}, api, annotation }) {
       )
     );
     pageOverview = backdrop;
-    function closeModal() { backdrop.remove(); pageOverview = null; }
+    function closeModal() { activeThumbs?.disconnect(); backdrop.remove(); pageOverview = null; }
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
     document.body.append(backdrop);
+    activeThumbs = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        const node = entry.target; activeThumbs?.unobserve(node);
+        const pg=pages[Number(node.dataset.thumb)];
+        if (pg) readyImages(pg).then(images => { if (node.isConnected) node.replaceChildren(pageThumb(pg,images)); });
+      }
+    },{rootMargin:'80px'});
+    grid.querySelectorAll('[data-thumb]').forEach(node=>activeThumbs.observe(node));
   }
 
   function movePage(i, delta) {
@@ -1351,8 +1265,9 @@ export async function mount({ root, params = {}, api, annotation }) {
     pageIndex = pages.indexOf(pg); updateButtons(); scheduleSave(); showPageMenu();
   }
   function duplicatePage(i) {
-    const src = pages[i];
-    pages.splice(i + 1, 0, JSON.parse(JSON.stringify({ objects: src.objects, bg: src.bg, bgColor: src.bgColor, bgImage: src.bgImage, title: src.title })));
+    if (pages.length >= MAX_BOARD_PAGES) { toast('This board has reached its page limit.', 'warn'); return; }
+    pages.splice(i + 1, 0, structuredClone(pages[i]));
+    if (i < pageIndex) pageIndex++;
     updateButtons();
     mark(); scheduleSave();
     showPageMenu(true);
@@ -1360,22 +1275,22 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
 
   function removePage(i) {
-    if (pages.length <= 1) return;
+    if (pages.length <= 1 || !confirm(`Delete page ${i+1}?`)) return;
+    const old = page();
     pages.splice(i, 1);
-    if (pageIndex >= pages.length) pageIndex = pages.length - 1;
-    if (pageIndex >= i && pageIndex > 0) pageIndex = Math.min(pageIndex, pages.length - 1);
-    objects = page().objects;
-    history = []; future = [];
-    updateButtons(); mark(); scheduleSave();
+    const keep = pages.indexOf(old);
+    pageIndex = keep < 0 ? Math.min(i,pages.length-1) : keep;
+    gotoPage(pageIndex);
     showPageMenu(true);
   }
 
   function clearPage() {
-    if (!objects.length && !page().bgImage) return;
+    if (!objects.length && (!page().bgImage || isSourcePage(page()))) return;
     pushHistory();
     objects = [];
     page().objects = objects;
-    if (!annotation) page().bgImage = null;
+    // A document page stays in place when its handwritten marks are cleared.
+    if (!isSourcePage(page())) page().bgImage = null;
     mark(); scheduleSave(); updateButtons();
     toast('Page cleared — undo with Ctrl+Z', 'info');
   }
@@ -1396,13 +1311,13 @@ export async function mount({ root, params = {}, api, annotation }) {
       else if (o.type === 'card') add(o.x, o.y, o.w, o.h);
     });
     if (!isFinite(minX)) return { x: 0, y: 0, w: fallbackW, h: fallbackH };
-    const pad = 40;
+    const pad = isSourcePage(pg) ? 0 : 40;
     return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
   }
 
   function renderPageToCanvas(pg, scale = 2, opts = {}) {
     const r = stage.getBoundingClientRect();
-    const b = boundsFor(pg, r.width / view.scale, r.height / view.scale);
+    const b = boundsFor(pg, Math.max(1,r.width / view.scale), Math.max(1,r.height / view.scale));
     const out = document.createElement('canvas');
     scale = Math.min(scale, 4200 / Math.max(b.w, b.h), Math.sqrt(7500000 / (b.w * b.h)));
     out.width = Math.max(1, Math.round(b.w * scale));
@@ -1416,56 +1331,66 @@ export async function mount({ root, params = {}, api, annotation }) {
     c.translate(-b.x, -b.y);
     paintBgPattern(c, b, pg.bg, light, 1);
     if (pg.bgImage) {
-      const img = getImage(pg.bgImage.src);
+      const img = opts.images?.get(pg.bgImage.src) || getImage(pg.bgImage.src);
       if (img.complete && img.naturalWidth) c.drawImage(img, pg.bgImage.x, pg.bgImage.y, pg.bgImage.w, pg.bgImage.h);
     }
-    pg.objects.forEach((o) => drawObject(c, o));
+    pg.objects.forEach(o => paintBoardObject(c,o,src => opts.images?.get(src) || getImage(src)));
     c.restore();
     return out;
   }
 
-  function exportPNG() {
+  async function readyImages(pg) {
+    const paths = [pg.bgImage?.src, ...pg.objects.map(o=>o.type==='image'?o.src:o.type==='emoji'?EMOJI_SVG[o.char]:null)].filter(Boolean);
+    const decoded = new Map();
+    await Promise.all([...new Set(paths)].map(async src => {
+      const img=getImage(src); await img.decode().catch(()=>{}); decoded.set(src,img);
+    }));
+    return decoded;
+  }
+  async function exportPNG() {
     try {
-      const out = renderPageToCanvas(page(), 2);
-      out.toBlob((blob) => {
+      const pg=page(), index=pageIndex;
+      const images=await readyImages(pg);
+      const out = renderPageToCanvas(pg, 2, {images});
+      out.toBlob(blob => {
         if (!blob) return;
-        downloadBlob(blob, `smartboard-page-${pageIndex + 1}.png`);
+        downloadBlob(blob, `smartboard-page-${index + 1}.png`);
         toast('PNG downloaded', 'ok');
       }, 'image/png');
     } catch (e) { console.error(e); toast('Export failed', 'err'); }
   }
-
+  let exporting = false;
   async function exportPDF() {
+    if (exporting) return;
+    exporting=true;
+    const selected=pages.map(pg=>({...pg,objects:pg.objects.slice()}));
     try {
       const { jsPDF } = window.jspdf || {};
-      if (!jsPDF) { toast('PDF library not loaded', 'err'); return; }
-      const first = renderPageToCanvas(pages[0], 1.6);
-      const landscape = first.width >= first.height;
-      const doc = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'pt', format: 'a4', compress: true });
-      const pw = doc.internal.pageSize.getWidth();
-      const ph = doc.internal.pageSize.getHeight();
-      pages.forEach((pg, i) => {
-        if (i > 0) doc.addPage(landscape ? 'a4' : 'a4', landscape ? 'landscape' : 'portrait');
-        const c = renderPageToCanvas(pg, 1.6);
-        const data = c.toDataURL('image/jpeg', 0.92);
-        const ratio = Math.min((pw - 32) / c.width, (ph - 32) / c.height);
-        const w = c.width * ratio, h = c.height * ratio;
-        doc.addImage(data, 'JPEG', (pw - w) / 2, (ph - h) / 2, w, h);
-      });
+      if (!jsPDF) throw Error('PDF library not loaded.');
+      let doc, bytes=0;
+      toast(`Preparing ${selected.length} pages for export…`, 'info');
+      for (const pg of selected) {
+        const c = renderPageToCanvas(pg, 1.35, {images:await readyImages(pg)});
+        const scale = Math.min(1, 1060 / Math.max(c.width,c.height));
+        const w=c.width*scale,h=c.height*scale,orientation=w>=h?'landscape':'portrait';
+        if (!doc) doc=new jsPDF({unit:'pt',format:[w,h],orientation,compress:true});
+        else doc.addPage([w,h],orientation);
+        const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.91));
+        c.width=c.height=1;
+        if (!blob || (bytes+=blob.size)>65*1024*1024) throw Error('The PDF export is too large. Split the lesson before exporting.');
+        doc.addImage(new Uint8Array(await blob.arrayBuffer()),'JPEG',0,0,w,h);
+      }
       doc.save(`SmartBoard-${new Date().toISOString().slice(0, 10)}.pdf`);
-      toast(`Exported ${pages.length} page PDF`, 'ok');
-    } catch (e) {
-      console.error(e);
-      toast('PDF export failed', 'err');
-    }
+      toast(`Exported ${selected.length} page PDF`, 'ok');
+    } catch (e) { console.error(e); toast(e.message || 'PDF export failed', 'err'); }
+    finally {exporting=false;}
   }
 
   /* ---------------- persistence ---------------- */
   const scheduleSave = debounce(() => saveSession(false), 500);
 
   function serialize() {
-    const savedPages = annotation ? [{ ...pages[0], bgImage: null }] : pages;
-    return { pages: savedPages, pageIndex, savedAt: Date.now(), version: 1 };
+    return { pages, pageIndex, savedAt: Date.now(), version: 1 };
   }
 
   async function saveSession(manual = false, immediate = false) {
@@ -1474,8 +1399,8 @@ export async function mount({ root, params = {}, api, annotation }) {
       const payload = serialize();
       const saved = await idb.set('boards', storageKey, payload);
       if (!saved) throw new Error('Storage is unavailable');
-      if (!annotation && !replacing) checkpoint(payload, manual ? 'Manual save' : 'Autosave').catch(console.warn);
-      if (!annotation && payload.pages.every(p => !p.bgImage && p.objects.length < 1500 && !p.objects.some(o => o.type === 'image'))) store.set('board-mirror', payload);
+      if (!replacing) checkpoint(payload, manual ? 'Manual save' : 'Autosave').catch(console.warn);
+      if (payload.pages.every(p => !p.bgImage && p.objects.length < 1500 && !p.objects.some(o => o.type === 'image'))) store.set('board-mirror', payload);
       if (immediate || manual) await archive.write(payload);
       else archive.schedule(payload);
       if (manual) { toast('Board saved on this device', 'ok'); beep({ freq: 660, dur: 0.08 }); }
@@ -1490,16 +1415,14 @@ export async function mount({ root, params = {}, api, annotation }) {
   async function loadSession() {
     try {
       let data = await idb.get('boards', storageKey);
-      const mirror = annotation ? null : store.get('board-mirror', null);
+      const mirror = store.get('board-mirror', null);
       if (mirror && (!data || (mirror.savedAt || 0) > (data.savedAt || 0))) data = mirror;
       if (data && Array.isArray(data.pages) && data.pages.length) {
-        pages = (annotation ? data.pages.slice(0, 1) : data.pages).map((p) => ({ objects: p.objects || [], bg: p.bg || 'grid', bgColor: /^#[a-f0-9]{6}$/i.test(p.bgColor) ? p.bgColor : undefined, bgImage: p.bgImage || null, title: p.title }));
-        if (annotation) pages[0].bgImage = annotation.image;
+        pages = data.pages.map((p) => ({ objects: p.objects || [], bg: p.bg || 'grid', bgColor: /^#[a-f0-9]{6}$/i.test(p.bgColor) ? p.bgColor : undefined, bgImage: p.bgImage || null, title: p.title, source: p.source }));
         pageIndex = clamp(data.pageIndex || 0, 0, pages.length - 1);
         objects = pages[pageIndex].objects;
-        pages.forEach((p) => p.objects.forEach((o) => { if (o.type === 'image') getImage(o.src); if (p.bgImage) getImage(p.bgImage.src); }));
         if (pages.some((p) => p.objects.length || p.bgImage)) {
-          if (!annotation) toast('Last board restored', 'info', 2600);
+          toast('Last board restored', 'info', 2600);
           setTimeout(() => fitView(), 80);
         }
       }
@@ -1511,7 +1434,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     saveSession(false, true);
     // synchronous safety net for hard reloads / crashes
     try {
-      if (!annotation && !pages.some(p => p.bgImage || p.objects.length > 1500 || p.objects.some(o => o.type === 'image'))) store.set('board-mirror', serialize());
+      if (!pages.some(p => p.bgImage || p.objects.length > 1500 || p.objects.some(o => o.type === 'image'))) store.set('board-mirror', serialize());
     } catch { /* quota */ }
   };
   const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
@@ -1520,10 +1443,8 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   /* ---------------- shortcuts ---------------- */
   function onKey(e) {
-    if (!isVisible() || replacing) return;
-    if (e.key === 'Escape' && (colorPop.style.display === 'grid' || !bgMenu.hidden)) {
-      toggleColors(false); toggleBackgrounds(false); return;
-    }
+    if (importing || document.querySelector('.board-dialog') || !isVisible() || replacing) return;
+    if (e.key === 'Escape' && (colorPop.style.display === 'grid' || !morePop.hidden || !penPop.hidden || !emojiPop.hidden)) { closePanels(); return; }
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     if (typing) return;
     const mod = e.ctrlKey || e.metaKey;
@@ -1533,6 +1454,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (e.key === ' ') { spaceHeld = true; canvas.style.cursor = 'grab'; }
     const map = { s: 'select', p: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', o: 'ellipse', t: 'text', z: 'laser', v: 'pan' };
     const k = e.key.toLowerCase();
+    if (!mod && pages.length > 1 && ['PageDown','PageUp'].includes(e.key)) { e.preventDefault(); gotoPage(pageIndex + (e.key === 'PageDown'?1:-1)); return; }
     if (e.key === 'Escape' && pendingEmoji) { pendingEmoji = null; updateEmojiHint(); return; }
     if (e.key === 'Escape' && selection) { selection = null; updateButtons(); mark(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteSelection(); return; }
@@ -1546,8 +1468,8 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
   const onTheme = () => {
     const light = document.documentElement.dataset.theme === 'light';
-    if (!annotation && light && color === '#ffffff') setColor('#0f172a');
-    if (!annotation && !light && color === '#0f172a') setColor('#ffffff');
+    if (!page().bgImage && !BG_FILLS[page().bg] && light && color === '#ffffff') setColor('#0f172a');
+    if (!page().bgImage && !BG_FILLS[page().bg] && !light && color === '#0f172a') setColor('#ffffff');
     mark();
   };
   window.addEventListener('sbos:theme', onTheme);
@@ -1560,18 +1482,17 @@ export async function mount({ root, params = {}, api, annotation }) {
   await loadSession();
   updateButtons();
   setTool(tool);
-  if (annotation) { getImage(annotation.image.src); requestAnimationFrame(fitView); }
-  if (!annotation && floatState.on) toggleFloat(true);
+  usePageInk();
   // Sticker images are loaded lazily on first use.
 
-  const ro = new ResizeObserver(() => resizeCanvas());
+  const ro = new ResizeObserver(() => { resizeCanvas(); if (page().bgImage) fitView(); });
   ro.observe(stage);
   resizeCanvas();
   requestAnimationFrame(resizeCanvas);
 
   // params: image from PDF viewer and tool requests
   async function openLessonBoard(board, title) {
-    if (annotation || replacing) return;
+    if (closed || replacing || importing) return;
     replacing = true;
     try {
       if (!await checkpoint(serialize(), 'Before opening a lesson', true)) throw Error('Could not keep a recovery point; export your current board first.');
@@ -1588,27 +1509,32 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
   const handleParams = (p = {}) => {
     if (p.lessonBoard) { openLessonBoard(p.lessonBoard, p.title); return; }
+    if (importing || replacing) return;
     if (p.image) {
-      if (p.newPage && (objects.length || page().bgImage)) addPage();
+      if (p.newPage && (objects.length || page().bgImage) && !addPage()) return;
       addImageObject(p.image, { asBackground: !!p.asBackground });
       toast(p.title ? `${p.title} sent to board` : 'Image added to board', 'ok');
     }
     if (p.page) gotoPage(clamp(p.page - 1, 0, pages.length - 1));
     if (p.tool && TOOLS.some((t) => t.id === p.tool)) setTool(p.tool);
-    if (p.picker) { buildEmojiPop(); emojiPop.hidden = false; }
+    if (p.picker) toggleEmoji();
+    if (Object.hasOwn(templates,p.template)) applyBackground(p.template, !(pages.length === 1 && isBlankBoardPage(page())));
     if (p.addPage) addPage();
     if (p.file || p.document) openDocument(p.file);
+    if (typeof p.action === 'string' && Object.hasOwn(actions,p.action)) actions[p.action]();
   };
+  const actions = { askForDocument, showImportDialog, showTemplates, showPageMenu, addPage, insertImage, insertPhoto, toggleEmoji, togglePenSettings, clearPage,
+      save: () => saveSession(true), toggleClassWidget: () => mini.toggle(), fitView, exportPNG, exportPDF };
   handleParams(params);
-
   return {
-    save: async () => { const saved = await embedded?.save?.(); return saved === false ? false : saveSession(false, true); },
+    save: () => saveSession(false, true), actions,
     onParams: handleParams,
     onResize: () => resizeCanvas(),
     onClose: () => {
       const saved = saveSession(false, true);
-      docEpoch++; embedded?.onClose?.(); mini?.close();
-      pageOverview?.remove();
+      closed = true; importing?.abort(); mini.close(); positioning.close();
+      pageOverview?.remove(); importDialog?.remove(); templateDialog?.remove(); activeThumbs?.disconnect();
+      window.removeEventListener('sbos:pen',penListener);
       ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
       if (eraserFrame) cancelAnimationFrame(eraserFrame);
@@ -1624,7 +1550,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     addPage,
     getPages: () => pages,
     state: () => ({
-      tool, pageIndex, pageCount: pages.length,
+      tool, pageIndex, pageCount: pages.length, documentPage: isSourcePage(page()),
       objects: objects.map((o) => ({
         type: o.type, pressured: !!o.pressured, pts: o.points?.length,
         p: o.points?.[0]?.p, char: o.char, url: o.url,
