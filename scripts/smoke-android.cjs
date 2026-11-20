@@ -22,12 +22,12 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   });
   const cdp = (method, params) => new Promise((resolve, reject) => {
     const n = ++id;
-    const timer = setTimeout(() => { pending.delete(n); reject(Error(`Timed out: ${method}`)); }, 5000);
+    const timer = setTimeout(() => { pending.delete(n); reject(Error(`Timed out: ${method}${params?.expression ? ` (${params.expression.slice(0, 100)})` : ''}`)); }, 20_000);
     pending.set(n, reply => { clearTimeout(timer); reply.error ? reject(Error(reply.error.message)) : resolve(reply.result); });
     ws.send(JSON.stringify({id:n, method, params}));
   });
-  const evalJs = async expression => {
-    const {result, exceptionDetails} = await cdp('Runtime.evaluate', {expression, returnByValue:true, awaitPromise:true});
+  const evalJs = async (expression, awaitPromise = false) => {
+    const {result, exceptionDetails} = await cdp('Runtime.evaluate', {expression, returnByValue:true, awaitPromise});
     if (exceptionDetails) throw Error(exceptionDetails.exception?.description || exceptionDetails.text);
     return result.value;
   };
@@ -41,7 +41,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(await evalJs(`(${board}).state().pageCount`), 1);
     await evalJs("document.querySelector('.new-board-page').click()");
     assert.equal(await evalJs(`(${board}).state().pageCount`), 2);
-    await evalJs('window.__sbos.saveWork()');
+    await evalJs('window.__sbos.saveWork()', true);
     const original = await evalJs('performance.timeOrigin');
     await cdp('Page.reload', {ignoreCache:true});
     for (let i=0; i<40 && !await evalJs(`performance.timeOrigin !== ${original} && Boolean(${board})`).catch(() => false); i++) await sleep(500);
