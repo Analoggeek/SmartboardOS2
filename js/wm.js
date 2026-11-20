@@ -58,6 +58,7 @@ export class WindowManager {
     rec.root.classList.add('closing');
     setTimeout(() => rec.root.remove(), 190);
     this.windows.delete(appId);
+    if (rec.root.classList.contains('focused')) this.focusVisible();
     this.emit();
   }
 
@@ -67,6 +68,7 @@ export class WindowManager {
     rec.minimized = force === undefined ? !rec.minimized : force;
     rec.root.classList.toggle('min', rec.minimized);
     if (!rec.minimized) this.focus(appId);
+    else if (rec.root.classList.contains('focused')) { rec.root.classList.remove('focused'); this.focusVisible(); }
     this.emit();
   }
 
@@ -80,12 +82,24 @@ export class WindowManager {
     this.emit();
   }
 
+  focusVisible() {
+    const candidates = [...this.windows.values()].filter(w => !w.minimized && !w.closed);
+    const top = candidates.reduce((a,b) => !a || Number(b.root.style.zIndex) > Number(a.root.style.zIndex) ? b : a, null);
+    if (top) this.focus(top.id);
+  }
+
+  returnToBoard(from) {
+    this.open('whiteboard', {returnToBoard:true});
+    if (from && from !== 'whiteboard') this.toggleMinimize(from, true);
+  }
+
   focus(appId) {
     const rec = this.windows.get(appId);
-    if (!rec) return;
+    if (!rec || rec.minimized || rec.root.classList.contains('focused')) return;
     zCounter += 1;
     rec.root.style.zIndex = String(zCounter);
     this.windows.forEach((r) => r.root.classList.toggle('focused', r === rec));
+    this.emit();
   }
 
   setTitle(appId, title) {
@@ -129,7 +143,8 @@ export class WindowManager {
         el('span', { class: 'ic', html: icon(def.icon || 'logo') }),
         titleEl
       ),
-      el('div', { class: 'win-actions' })
+      el('div', { class: 'win-actions' }, def.id !== 'whiteboard' && el('button', {class:'win-back-board', type:'button', title:'Back to Whiteboard', 'aria-label':'Back to Whiteboard', onclick:()=>this.returnToBoard(def.id)},
+        el('span',{html:icon('arrow-left'),'aria-hidden':'true'}),el('b',{text:'Whiteboard'})))
     );
 
     const body = el('div', { class: 'win-body' });
@@ -159,6 +174,7 @@ export class WindowManager {
       params,
       open: (id, p) => this.open(id, p),
       close: () => this.close(def.id),
+      returnToBoard: () => this.returnToBoard(def.id),
       setTitle: (t) => this.setTitle(def.id, t),
       maximize: () => this.toggleMaximize(def.id),
       isMobile,

@@ -1,13 +1,13 @@
 /* Whiteboard — infinite-feel canvas with pages, shapes, text, images, PDF export */
-import { el, clamp, toast, downloadBlob, downloadURL, pickFiles, fileToDataURL, debounce, uid, beep } from '../utils.js';
+import { el, clamp, toast, downloadBlob, downloadURL, pickFiles, fileToDataURL, debounce, uid, beep, fmtClock } from '../utils.js';
 import { createEraserIndex, eraseStroke } from '../eraser.js';
 import { archiveWriter } from '../archive.js';
 import { ACCEPT, isDocument } from '../document-import.js';
-import { MAX_BOARD_PAGES, isBlankBoardPage, insertDocumentPages, readDocumentPages } from '../board-document.js';
+import { MAX_BOARD_PAGES, isBlankBoardPage, insertBlankBoardPage, insertDocumentPages, readDocumentPages } from '../board-document.js';
 import { BG_NAMES, BG_FILLS, templates, templatePreview, paintBgPattern } from '../board-templates.js';
-import { movableControls } from '../control-layout.js';
+import { movableControls, resetBoardControls } from '../control-layout.js';
 import { icon, iconEl } from '../icons.js';
-import { idb, store } from '../db.js';
+import { getSettings, idb, store } from '../db.js';
 import { createPenTracker, getPenSettings, savePenSettings } from '../pen.js';
 import { classroomWidget } from '../class-widget.js';
 import { capturePhoto } from '../camera.js';
@@ -71,7 +71,7 @@ export async function mount({ root, params = {}, api }) {
 
   /* ---------------- DOM ---------------- */
   const stage = el('div', { class: 'wb-stage' });
-  const canvas = el('canvas');
+  const canvas = el('canvas', { tabindex: '0', 'aria-label':'Whiteboard canvas' });
   stage.append(canvas);
   const ctx = canvas.getContext('2d');
   const scene = document.createElement('canvas');
@@ -178,29 +178,61 @@ export async function mount({ root, params = {}, api }) {
     if (!morePop.hidden) { closePanels(morePop); placePanel(morePop); }
   });
   moreBtn.setAttribute('aria-expanded','false');
-  const basic = ['select','pen','highlighter','eraser','text'];
+  const basic = ['select','pen','highlighter','eraser','text','line','arrow'];
   const primaryTools = basic.map(id => toolButtons.get(id));
   const morePop = el('div', { class: 'wb-pop wb-context-pop wb-more', hidden: true },
-    el('div', { class: 'pop-head' }, el('b', { text: 'Drawing tools' })),
+    el('div', { class: 'pop-head' }, el('b', { text: 'Shapes, brush & zoom' })),
     el('div', { class: 'drawing-grid' }, ...TOOLS.filter(t => !basic.includes(t.id)).map(t => toolButtons.get(t.id))),
     el('label', { class: 'wb-brush-label' }, 'Brush size ', sizeInput), eraseMode, zoomBox);
-  const toolbar = el('div', { class: 'app-toolbar wb-toolbar clean-toolbox', role: 'toolbar', 'aria-label': 'Drawing toolbox' },
-    grip, el('div', { class:'sep' }), ...primaryTools, colorBtn, moreBtn, el('div', { class:'sep' }), undoBtn, redoBtn);
-  const pageStrip = el('div', { class: 'board-page-strip', hidden: true, 'aria-label':'Board pages' }, prevBtn, pageLabel, nextBtn);
-  stage.append(toolbar, morePop, pageStrip);
+  const quickColours = ['#ef4444','#0ea5e9','#22c55e'];
+  const colourButtons = quickColours.map((value, i) => el('button',{class:'tool-btn quick-colour',title:`${['Red','Blue','Green'][i]} ink`,'aria-label':`${['Red','Blue','Green'][i]} ink`,
+    'aria-pressed':'false', onclick:() => { setColor(value); if (!['pen','highlighter','line','arrow','rect','ellipse','text'].includes(tool)) setTool('pen'); }},el('i',{style:{background:value}})));
+  const newBtn = toolButton('file-plus','New page after current',addPage);
+  newBtn.classList.add('new-board-page');
+  const deletePageBtn = toolButton('trash','Delete current page',() => removePage(pageIndex, false));
+  const deleteImageBtn = toolButton('image-x','Delete selected image',deleteImage);
+  const pageStrip = el('div', { class: 'board-page-strip', role:'group', 'aria-label':'Board pages' },
+    newBtn, prevBtn, pageLabel, nextBtn, deletePageBtn, deleteImageBtn);
+  const inkTools=el('div',{class:'ink-tools',role:'group','aria-label':'Pen and ink'},grip,...primaryTools,
+    el('span',{class:'colour-presets',role:'group','aria-label':'Ink presets'},...colourButtons),colorBtn,moreBtn,undoBtn,redoBtn);
+  const toolbar = el('div', { class: 'app-toolbar wb-toolbar clean-toolbox', role: 'toolbar', 'aria-label': 'Drawing and page toolbox' },inkTools,pageStrip);
+
+  const quick = (glyph,label,short,click,secondary = false) => el('button',{class:`tool-btn teaching-shortcut${secondary?' shortcut-secondary':''}`,type:'button',title:label,'aria-label':label,onclick:click},
+    el('span',{class:'shortcut-icon',html:icon(glyph),'aria-hidden':'true'}), short && el('span',{class:'shortcut-label',text:short}));
+  const importShortcut = quick('file-plus','Import PDF / PPT','Import',askForDocument);
+  importShortcut.classList.add('shortcut-primary');
+  const shortcuts = el('div',{class:'board-shortcuts',role:'toolbar','aria-label':'Teaching shortcuts'},
+    importShortcut, quick('camera','Camera and recording','Camera',() => api.open('recording')),
+    quick('smile','Stickers and emoji','Stickers',() => toggleEmoji(shortcuts)), quick('users','Classroom tools','Class tools',()=>mini.toggle()),
+    quick('note','Open Notes','Notes',() => api.open('notes')), quick('image','Insert image',null,insertImage),
+    quick('grid','Board designs',null,showTemplates), quick('save','Save board',null,() => saveSession(true),true),
+    quick('download','Export board PDF',null,exportPDF,true), quick('expand','Fit page',null,fitView,true),
+    quick('fullscreen','Toggle screen fullscreen',null,()=>window.__sbos.toggleFullscreen()), quick('rotate','Reset layout',null,resetBoardControls,true));
+  const clockTime = el('time',{class:'board-clock-time'});
+  const clock = el('div',{class:'board-clock',title:'Local time'},el('span',{html:icon('clock'),'aria-hidden':'true'}),clockTime);
+  const updateClock = () => {
+    const now = new Date(), {time,suffix} = fmtClock(now,getSettings().use24h);
+    const label = suffix ? `${time} ${suffix}` : time;
+    if (clockTime.textContent !== label) {
+      clockTime.textContent = label;
+      clockTime.dateTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    }
+  };
+  updateClock(); const clockTimer = setInterval(updateClock,1000);
+  stage.append(shortcuts,clock,toolbar,morePop);
   const mini = classroomWidget(() => api.open('class'));
   stage.append(mini.node);
   const app = el('div', { class: 'app wb-app' }, stage);
   root.append(app);
-  const positioning = movableControls({node: toolbar, handle: grip, bounds:stage, key:'toolbox',
-    start: max => ({x: max.x / 2, y: stage.clientWidth < 760 ? 56 : 5}), moved: () => { if (colorPop.style.display === 'grid') placePanel(colorPop); if (!morePop.hidden) placePanel(morePop); } });
-  function placePanel(panel) {
-    const above = toolbar.offsetTop > stage.clientHeight / 2;
+  const positioning = movableControls({node: toolbar, handle: grip, bounds:stage, key:'teaching-tray',
+    start: max => ({x: max.x / 2, y: max.y}), moved: () => { if (colorPop.style.display === 'grid') placePanel(colorPop); if (!morePop.hidden) placePanel(morePop); } });
+  function placePanel(panel, anchor = toolbar) {
+    const above = anchor.offsetTop > stage.clientHeight / 2;
     const w = panel.offsetWidth || 224;
-    panel.style.left = `${clamp(toolbar.offsetLeft + (toolbar.offsetWidth - w)/2, 8, Math.max(8,stage.clientWidth-w-8))}px`;
+    panel.style.left = `${clamp(anchor.offsetLeft + (anchor.offsetWidth - w)/2, 8, Math.max(8,stage.clientWidth-w-8))}px`;
     panel.style.right = 'auto';
-    panel.style.top = above ? 'auto' : `${toolbar.offsetTop + toolbar.offsetHeight + 8}px`;
-    panel.style.bottom = above ? `${stage.clientHeight - toolbar.offsetTop + 8}px` : 'auto';
+    panel.style.top = above ? 'auto' : `${anchor.offsetTop + anchor.offsetHeight + 8}px`;
+    panel.style.bottom = above ? `${stage.clientHeight - anchor.offsetTop + 8}px` : 'auto';
   }
   function closePanels(keep) {
     for (const p of [morePop, emojiPop, penPop]) if (p !== keep) p.hidden = true;
@@ -301,8 +333,8 @@ export async function mount({ root, params = {}, api }) {
     emojiHint.hidden = !pendingEmoji;
     emojiHint.querySelector('span').textContent = pendingEmoji ? `Tap the board to place ${pendingEmoji}` : '';
   }
-  function toggleEmoji() {
-    if (emojiPop.hidden) { closePanels(); buildEmojiPop(); emojiPop.hidden = false; placePanel(emojiPop); }
+  function toggleEmoji(anchor = toolbar) {
+    if (emojiPop.hidden) { closePanels(); buildEmojiPop(); emojiPop.hidden = false; placePanel(emojiPop, anchor); }
     else emojiPop.hidden = true;
   }
 
@@ -387,6 +419,7 @@ export async function mount({ root, params = {}, api }) {
     badgeTool.textContent = selection && id === 'select' ? `Select · ${selection.type}` : (TOOLS.find((t) => t.id === id)?.name || id);
     canvas.style.cursor = id === 'pan' ? 'grab' : id === 'text' ? 'text' : id === 'eraser' ? 'none' : id === 'select' ? 'default' : 'crosshair';
     if (id !== 'select' && selection) { selection = null; mark(); }
+    updateButtons();
 
     api.setTitle(`Whiteboard · ${TOOLS.find((t) => t.id === id)?.name}`);
   }
@@ -394,6 +427,7 @@ export async function mount({ root, params = {}, api }) {
     color = c;
     colorDot.style.background = c;
     customColor.value = c;
+    colourButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(quickColours[i]===c)));
   }
   function zoomBy(f) {
     const r = canvas.getBoundingClientRect();
@@ -416,7 +450,8 @@ export async function mount({ root, params = {}, api }) {
     if (!hasContent) { view = { x: 0, y: 0, scale: 1 }; zoomLabel.textContent = '100%'; mark(); return; }
     const b = isSourcePage(page()) ? page().bgImage : boundsFor(page(), r.width, r.height);
     const pad = page().bgImage ? 16 : 36;
-    const top = page().bgImage ? (r.width < 760 ? 112 : 65) : pad, bottom = page().bgImage && pages.length > 1 ? 57 : pad;
+    const top = Math.max(pad, shortcuts.offsetTop + shortcuts.offsetHeight + 8);
+    const bottom = Math.max(pad, toolbar.offsetTop > r.height / 2 ? r.height - toolbar.offsetTop + 8 : 14);
     const h = Math.max(40,r.height-top-bottom);
     const scale = clamp(Math.min((r.width - pad * 2) / b.w, h / b.h), 0.03, 4);
     view.scale = scale;
@@ -460,9 +495,16 @@ export async function mount({ root, params = {}, api }) {
     badgeTool.textContent = selection && tool === 'select'
       ? `Select · ${selection.type}`
       : (TOOLS.find((t) => t.id === tool)?.name || tool);
-    pageStrip.hidden = pages.length < 2;
+    newBtn.disabled = pages.length >= MAX_BOARD_PAGES;
+    deletePageBtn.disabled = pages.length <= 1;
+    const canRemoveBackdrop = !!page().bgImage && !isSourcePage(page());
+    deleteImageBtn.disabled = !(selection?.type === 'image' || canRemoveBackdrop);
+    const imageAction = selection?.type !== 'image' && canRemoveBackdrop ? 'Delete background image' : 'Delete selected image';
+    deleteImageBtn.title = imageAction;
+    deleteImageBtn.setAttribute('aria-label', imageAction);
     pageLabel.setAttribute('aria-label', `Page ${pageIndex + 1} of ${pages.length}. Open page overview`);
-    badgeInfo.textContent = `Page ${pageIndex + 1} · ${objects.length} items`;
+    badgeInfo.textContent = `Page ${pageIndex + 1} · ${page().title || `${objects.length} items`}`;
+    pageLabel.title = page().title ? `${page().title} · Page overview` : 'Page overview';
     emptyHint.style.display = objects.length || page().bgImage || templates[page().bg] ? 'none' : 'grid';
   }
 
@@ -1173,11 +1215,22 @@ export async function mount({ root, params = {}, api }) {
     mark(); scheduleSave();
   }
   function addPage() {
-    if (pages.length >= MAX_BOARD_PAGES) { toast('This board has reached its page limit.', 'warn'); return false; }
-    const source = isSourcePage(page());
-    pages.push({ objects: [], bg: source ? 'grid' : page().bg, bgColor: source ? undefined : page().bgColor, bgImage: null });
-    gotoPage(pages.length - 1);
-    toast(`Page ${pages.length} added`, 'ok', 1600); return true;
+    if (importing || replacing) return false;
+    try {
+      const next = insertBlankBoardPage(pages,pageIndex);
+      pages = next.pages;
+      gotoPage(next.pageIndex);
+      toast(`Blank page inserted · ${pageIndex + 1} of ${pages.length}`, 'ok', 1700); return true;
+    } catch (error) { toast(error.message,'warn'); return false; }
+  }
+  function deleteImage() {
+    if (selection?.type === 'image') { deleteSelection(); return; }
+    if (page().bgImage && !isSourcePage(page())) {
+      pushHistory();
+      page().bgImage = null;
+      fitView(); scheduleSave(); updateButtons();
+      toast('Background image removed · Undo to restore', 'info');
+    }
   }
   function pageThumb(pg,images) {
     const W = 168, H = 108;
@@ -1230,7 +1283,7 @@ export async function mount({ root, params = {}, api }) {
       grid.append(card);
     });
     grid.append(el('button', { class: 'wb-page-add', onclick: () => { addPage(); showPageMenu(true); } },
-      el('span', { html: icon('file-plus') }), el('b', { text: 'New page' }), el('small', { text: 'Blank page with the same background' })
+      el('span', { html: icon('file-plus') }), el('b', { text: 'New page' }), el('small', { text: 'Insert after the current page' })
     ));
 
     const backdrop = el('div', { class: 'modal-backdrop' },
@@ -1274,14 +1327,15 @@ export async function mount({ root, params = {}, api }) {
     toast(`Page ${i + 1} duplicated`, 'ok', 1500);
   }
 
-  function removePage(i) {
+  function removePage(i, reopen = true) {
     if (pages.length <= 1 || !confirm(`Delete page ${i+1}?`)) return;
     const old = page();
     pages.splice(i, 1);
     const keep = pages.indexOf(old);
     pageIndex = keep < 0 ? Math.min(i,pages.length-1) : keep;
     gotoPage(pageIndex);
-    showPageMenu(true);
+    if (reopen) showPageMenu();
+    else toast(`Page deleted · ${pages.length} remaining`, 'info', 1800);
   }
 
   function clearPage() {
@@ -1443,7 +1497,7 @@ export async function mount({ root, params = {}, api }) {
 
   /* ---------------- shortcuts ---------------- */
   function onKey(e) {
-    if (importing || document.querySelector('.board-dialog') || !isVisible() || replacing) return;
+    if (importing || pageOverview || document.querySelector('.board-dialog') || !isVisible() || replacing) return;
     if (e.key === 'Escape' && (colorPop.style.display === 'grid' || !morePop.hidden || !penPop.hidden || !emojiPop.hidden)) { closePanels(); return; }
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     if (typing) return;
@@ -1490,7 +1544,7 @@ export async function mount({ root, params = {}, api }) {
   resizeCanvas();
   requestAnimationFrame(resizeCanvas);
 
-  // params: image from PDF viewer and tool requests
+  // Reuse the board for incoming media, documents and workspace actions.
   async function openLessonBoard(board, title) {
     if (closed || replacing || importing) return;
     replacing = true;
@@ -1509,6 +1563,7 @@ export async function mount({ root, params = {}, api }) {
   }
   const handleParams = (p = {}) => {
     if (p.lessonBoard) { openLessonBoard(p.lessonBoard, p.title); return; }
+    if (p.returnToBoard) canvas.focus({preventScroll:true});
     if (importing || replacing) return;
     if (p.image) {
       if (p.newPage && (objects.length || page().bgImage) && !addPage()) return;
@@ -1523,7 +1578,7 @@ export async function mount({ root, params = {}, api }) {
     if (p.file || p.document) openDocument(p.file);
     if (typeof p.action === 'string' && Object.hasOwn(actions,p.action)) actions[p.action]();
   };
-  const actions = { askForDocument, showImportDialog, showTemplates, showPageMenu, addPage, insertImage, insertPhoto, toggleEmoji, togglePenSettings, clearPage,
+  const actions = { deletePage: () => removePage(pageIndex, false), deleteImage, askForDocument, showImportDialog, showTemplates, showPageMenu, addPage, insertImage, insertPhoto, toggleEmoji, togglePenSettings, clearPage,
       save: () => saveSession(true), toggleClassWidget: () => mini.toggle(), fitView, exportPNG, exportPDF, undo, redo,
     penColour: () => toggleColors(true), brushSettings: () => { closePanels(morePop); morePop.hidden = false; moreBtn.setAttribute('aria-expanded','true'); placePanel(morePop); sizeInput.focus(); },
     previousPage: () => gotoPage(pageIndex - 1), nextPage: () => gotoPage(pageIndex + 1),
@@ -1535,7 +1590,7 @@ export async function mount({ root, params = {}, api }) {
     onResize: () => resizeCanvas(),
     onClose: () => {
       const saved = saveSession(false, true);
-      closed = true; importing?.abort(); mini.close(); positioning.close();
+      closed = true; importing?.abort(); mini.close(); positioning.close(); clearInterval(clockTimer);
       pageOverview?.remove(); importDialog?.remove(); templateDialog?.remove(); activeThumbs?.disconnect();
       window.removeEventListener('sbos:pen',penListener);
       ro.disconnect();

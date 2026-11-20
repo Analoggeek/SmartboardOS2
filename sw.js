@@ -1,5 +1,5 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.18`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.20`;
 const CORE = [
   './',
   './index.html',

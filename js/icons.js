@@ -11,6 +11,7 @@ const P = {
   smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
   board: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M9.5 12.5 15 7"/>',
   pdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h5"/><path d="M8 17h7"/>',
+  'image-x': '<path d="M12 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 16l5-5 4 4m3 1 6 6m0-6-6 6"/><circle cx="15.5" cy="8.5" r="1.3"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15.5 16 10.5 5 21"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.6"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/><path d="M16 3.2a4 4 0 0 1 0 7.6"/>',
   note: '<path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M14 21v-5a1 1 0 0 1 1-1h5"/>',

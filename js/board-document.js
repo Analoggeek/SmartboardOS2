@@ -5,6 +5,14 @@ export const MAX_BOARD_PAGES = 300;
 const MAX_PAGE_IMAGES = 22 * 1024 * 1024;
 export const isBlankBoardPage = (p) => p.bg === 'grid' && !p.objects.length && !p.bgImage && !p.title && !p.bgColor;
 
+export function insertBlankBoardPage(pages, current) {
+  if (pages.length >= MAX_BOARD_PAGES) throw Error('This board has reached its page limit.');
+  const here = pages[current];
+  const fresh = { objects: [], bg: here.source || here.bgImage ? 'grid' : here.bg, bgColor: here.source || here.bgImage ? undefined : here.bgColor, bgImage: null };
+  const pageIndex = current + 1;
+  return { pageIndex, pages: [...pages.slice(0, pageIndex), fresh, ...pages.slice(pageIndex)] };
+}
+
 export function insertDocumentPages(pages, current, incoming) {
   const replace = pages.length === 1 && isBlankBoardPage(pages[0]);
   const pageIndex = replace ? 0 : current + 1;

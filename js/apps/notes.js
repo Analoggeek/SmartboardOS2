@@ -15,7 +15,8 @@ export function mount({ root, api }) {
   const editor = el('div', { class: 'notes-editor' }, titleInput, bodyInput, meta);
   const wrap = el('div', { class: 'notes-wrap' }, list, editor);
 
-  const toolbar = el('div', { class: 'app-toolbar' },
+  const toolbar = el('div', { class: 'app-toolbar notes-toolbar' },
+    el('button', {class:'tool-btn notes-back', html:`${icon('arrow-left')}<span>Back to board</span>`, onclick:() => { save(); api.returnToBoard(); }}),
     el('button', { class: 'tool-btn ghost', html: `${icon('plus')}<span>New note</span>`, onclick: () => newNote() }),
     el('div', { class: 'sep' }),
     el('button', { class: 'tool-btn', html: icon('trash'), title: 'Delete note', onclick: deleteNote }),
