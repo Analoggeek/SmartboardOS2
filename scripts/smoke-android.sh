@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "::error::Airplane Mode test failed on line $LINENO"' ERR
 pkg=com.analoggeek.smartboardos.qa
 adb shell cmd connectivity airplane-mode enable
 adb shell svc wifi disable

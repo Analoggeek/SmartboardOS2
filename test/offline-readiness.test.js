@@ -10,12 +10,15 @@ const scope = 'https://example.test/SmartBoardOS2/';
 function serviceWorker() {
   const events = new Map(), files = new Set();
   const self = { registration:{scope}, addEventListener:(event,fn) => events.set(event,fn) };
-  const cache = { addAll: requests => requests.forEach(req => files.add(req.url)), keys: () => [...files].map(url => ({url})) };
+  const cache = { addAll: requests => requests.forEach(req => files.add(req.url)), keys: () => [...files].map(url => ({url})), match: url => files.has(url) ? {url} : undefined };
   class Request { constructor(path) { this.url = new URL(path, scope).href; } }
   vm.runInNewContext(code, {self, URL, Request, caches:{open:async () => cache}});
   const dispatch = (name, event = {}) => new Promise(resolve => events.get(name)({ ...event, waitUntil: resolve }));
   const fakeWorker = { postMessage: (data, ports) => { void dispatch('message', {data,ports}); } };
-  return { dispatch, files, fakeWorker };
+  const fetch = request => new Promise(resolve => {
+    events.get('fetch')({request, respondWith: promise => resolve(promise)});
+  });
+  return { dispatch, files, fakeWorker, fetch };
 }
 
 test('offline status verifies the actual core cache, including under a GitHub Pages subpath', async () => {
@@ -35,4 +38,12 @@ test('offline status handles unavailable or older workers without claiming readi
   assert.equal(await offlineStatus(null), false);
   assert.equal(await offlineStatus({postMessage: () => {}}, 8), false);
   assert.equal(await offlineStatus({postMessage: () => { throw Error('Worker exited'); }}, 8), false);
+});
+
+
+test('offline navigation to installation instructions works with an anchor', async () => {
+  const worker = serviceWorker();
+  await worker.dispatch('install');
+  const response = await worker.fetch({method:'GET', mode:'navigate', url:`${scope}install.html#phone`});
+  assert.equal(response.url, `${scope}install.html`);
 });

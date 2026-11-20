@@ -85,6 +85,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   url.search = '';
+  url.hash = '';
   const home = url.href === self.registration.scope || url.href === new URL('index.html', self.registration.scope).href;
   if (!assets.has(url.href)) return;
   event.respondWith(caches.open(VERSION)
