@@ -132,24 +132,26 @@ function placeAppMenu() {
   appMenu.style.left=`${clamp(left,8,Math.max(8,innerWidth-appMenu.offsetWidth-8))}px`;
   appMenu.style.top=`${clamp(yBelow+height<=innerHeight || top<height+15 ? yBelow : top-height-8,8,Math.max(8,innerHeight-height-8))}px`;
 }
-function selectLauncherTab(board) {
-  $('#workspace-grid').hidden=board;
-  $('#workspace-board-actions').hidden=!board;
-  $('#show-app-grid').setAttribute('aria-pressed',String(!board));
-  $('#show-board-actions').setAttribute('aria-pressed',String(board));
-  placeAppMenu();
-}
 function openDocumentPicker() {
   closeAppMenu();
   pickFiles({accept:ACCEPT}).then(([file])=> { if (file) launch('whiteboard',{file}); });
 }
 const boardAction = action => launch('whiteboard',{action});
-const boardActions = [
-  ['grid','Board designs','showTemplates'], ['plus','Add board page','addPage'], ['file','Page overview','showPageMenu'],
-  ['image','Insert image','insertImage'], ['camera','Take board photo','insertPhoto'], ['smile','Stickers','toggleEmoji'],
-  ['settings','Pen & palm','togglePenSettings'], ['users','Class widget','toggleClassWidget'], ['expand','Fit content','fitView'],
-  ['save','Save board','save'], ['pdf','Export board PDF','exportPDF'], ['download','Export page PNG','exportPNG'],
-  ['trash','Clear page ink','clearPage'], ['folder','Previous imports','showImportDialog'],
+const boardGroups = [
+  ['Draw', [
+    ...Whiteboard.TOOLS.map(({id,name,icon}) => [icon,name,() => launch('whiteboard',{tool:id})]),
+    ['circle','Pen colour','penColour'], ['settings','Brush size','brushSettings'], ['settings','Pen & palm','togglePenSettings'],
+    ['undo','Undo','undo'], ['redo','Redo','redo'],
+  ]],
+  ['Pages & view', [
+    ['plus','Add board page','addPage'], ['file','Page overview','showPageMenu'], ['chevron-left','Previous page','previousPage'], ['chevron-right','Next page','nextPage'],
+    ['grid','Board designs','showTemplates'], ['expand','Fit content','fitView'], ['plus','Zoom in','zoomIn'], ['minus','Zoom out','zoomOut'], ['rotate','Reset zoom','resetZoom'],
+  ]],
+  ['Insert & share', [
+    ['camera','Take board photo','insertPhoto'], ['image','Insert image','insertImage'], ['smile','Stickers','toggleEmoji'], ['users','Class widget','toggleClassWidget'],
+    ['save','Save board','save'], ['pdf','Export board PDF','exportPDF'], ['download','Export page PNG','exportPNG'],
+    ['trash','Clear page ink','clearPage'], ['folder','Previous imports','showImportDialog'],
+  ]],
 ];
 function closeAppMenu(focus = false) {
   appMenu.hidden = true;
@@ -191,13 +193,16 @@ function renderLaunch() {
   $('#hero-actions').replaceChildren(
     el('button', { class: 'home-cta primary', html: `${icon('pen')}<span>Open whiteboard</span>`, onclick: () => launch('whiteboard') }),
     el('button', { class: 'home-cta', html: `${icon('file-plus')}<span>Import PDF / PPT</span>`, onclick: openDocumentPicker }));
-  $('#home-templates').replaceChildren(...['blueprint','cornell','coordinate'].map(id => el('button',{
+  $('#home-templates').replaceChildren(...['cornell','blueprint','storyboard'].map(id => el('button',{
     class:'home-template-tile',onclick:()=>launch('whiteboard',{template:id}), 'aria-label':`Add ${templates[id].name} page`
   },templatePreview(id),el('span',{},el('b',{text:templates[id].name}),el('small',{text:templates[id].detail})),el('span',{class:'home-card-arrow',html:icon('chevron-right'),'aria-hidden':'true'}))));
   $('#home-templates').append(el('button',{class:'home-all-templates',html:`<span>Explore all board designs</span>${icon('chevron-right')}`,onclick:()=>boardAction('showTemplates')}));
   if (!DESKTOP) $('#home-footer-links').append(el('a',{href:'./install.html',text:'Get the offline installer'}));
-  $('#workspace-board-actions').replaceChildren(...boardActions.map(([symbol,label,id])=>
-    el('button',{class:'board-action',type:'button',onclick:()=>boardAction(id)},el('span',{html:icon(symbol),'aria-hidden':'true'}),el('b',{text:label}))));
+  $('#workspace-board-actions').replaceChildren(...boardGroups.map(([heading,items])=>
+    el('section',{class:'board-action-group'},el('h3',{text:heading}),el('div',{class:'board-action-list'},...items.map(([symbol,label,action])=>
+      el('button',{class:'board-action',type:'button',onclick:() => typeof action === 'function' ? action() : boardAction(action)},
+        el('span',{html:icon(symbol),'aria-hidden':'true'}),el('b',{text:label})))))));
+
 }
 
 /* =========================================================
@@ -378,9 +383,12 @@ async function boot() {
   appToggle.onclick = () => {
     if (!appMenu.hidden) { closeAppMenu(); return; }
     appMenu.hidden = false;
-    selectLauncherTab(false);
+    appMenu.dataset.view = boardVisible() ? 'board' : 'workspace';
+    $('#launcher-title').textContent = boardVisible() ? 'Board menu' : 'Workspace';
+    appMenu.scrollTop = 0;
+    placeAppMenu();
     appToggle.setAttribute('aria-expanded','true');
-    appMenu.querySelector('.workspace-tile')?.focus({ preventScroll: true });
+    $('#btn-import').focus({ preventScroll: true });
   };
   $('#btn-customize').onclick = () => {
     customize.hidden = !customize.hidden;
@@ -389,14 +397,19 @@ async function boot() {
     if (!customize.hidden) customize.querySelector('input')?.focus();
   };
   const appPosition = movableControls({node:shellControls,handle:$('#move-apps'),bounds:$('#os'),key:'apps',start:()=>({x:6,y:5}),enabled:boardVisible,moved:placeAppMenu});
-  const syncControls = () => { document.body.classList.toggle('teaching-board', boardVisible()); appPosition.reflow(); };
+  const syncControls = () => {
+    const teaching = boardVisible();
+    document.body.classList.toggle('teaching-board', teaching);
+    $('#launcher-label').textContent = teaching ? 'Menu' : 'Apps';
+    appPosition.reflow();
+  };
   wm.onChange(syncControls);
   document.addEventListener('pointerdown',() => requestAnimationFrame(syncControls));
   window.addEventListener('resize',placeAppMenu);
   $('#btn-import').onclick=openDocumentPicker;
-  $('#show-app-grid').onclick=()=>selectLauncherTab(false);
-  $('#show-board-actions').onclick=()=>selectLauncherTab(true);
-  $('#btn-reset-controls').onclick=()=>{ resetBoardControls(); closeAppMenu(true); toast('Apps and toolbox reset to their default positions.', 'ok'); };
+  $('#btn-camera').onclick=()=>launch('recording');
+  $('#btn-menu-close').onclick=()=>closeAppMenu(true);
+  $('#btn-reset-controls').onclick=()=>{ resetBoardControls(); closeAppMenu(true); toast('Menu and toolbox reset to their default positions.', 'ok'); };
   $('#btn-cmd').onclick = () => { closeAppMenu(); openPalette(); };
   $('#btn-theme').onclick = () => { saveSettings({ theme: settings().theme === 'light' ? 'dark' : 'light' }); applyTheme(); };
   $('#btn-fullscreen').onclick = toggleFullscreen;

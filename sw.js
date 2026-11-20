@@ -1,5 +1,5 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.16`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.18`;
 const CORE = [
   './',
   './index.html',
@@ -47,7 +47,6 @@ const CORE = [
   './vendor/pdf.min.js',
   './vendor/pdf.worker.min.js',
   './vendor/jspdf/jspdf.umd.min.js',
-  './assets/branding/classroom-hero.jpg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/maskable-512.png',

@@ -19,7 +19,7 @@ const PALETTE = [
   '#0f172a', '#64748b', '#ffffff', '#ef4444', '#f97316', '#eab308',
   '#22c55e', '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7', '#ec4899',
 ];
-const TOOLS = [
+export const TOOLS = [
   { id: 'select', name: 'Select', icon: 'cursor' },
   { id: 'pen', name: 'Pen', icon: 'pen' },
   { id: 'highlighter', name: 'Highlighter', icon: 'highlighter' },
@@ -1524,7 +1524,10 @@ export async function mount({ root, params = {}, api }) {
     if (typeof p.action === 'string' && Object.hasOwn(actions,p.action)) actions[p.action]();
   };
   const actions = { askForDocument, showImportDialog, showTemplates, showPageMenu, addPage, insertImage, insertPhoto, toggleEmoji, togglePenSettings, clearPage,
-      save: () => saveSession(true), toggleClassWidget: () => mini.toggle(), fitView, exportPNG, exportPDF };
+      save: () => saveSession(true), toggleClassWidget: () => mini.toggle(), fitView, exportPNG, exportPDF, undo, redo,
+    penColour: () => toggleColors(true), brushSettings: () => { closePanels(morePop); morePop.hidden = false; moreBtn.setAttribute('aria-expanded','true'); placePanel(morePop); sizeInput.focus(); },
+    previousPage: () => gotoPage(pageIndex - 1), nextPage: () => gotoPage(pageIndex + 1),
+    zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(.8), resetZoom: () => { view = {x:0,y:0,scale:1}; mark(); } };
   handleParams(params);
   return {
     save: () => saveSession(false, true), actions,

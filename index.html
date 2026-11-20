@@ -42,17 +42,31 @@
           <div class="home-meta"><span id="home-date"></span><span class="home-status"><i></i> Works offline</span></div>
         </header>
         <section class="home-hero" aria-labelledby="home-headline">
-          <img class="home-hero-art" src="./assets/branding/classroom-hero.jpg" alt="" width="1536" height="864"/>
           <div class="home-hero-copy">
             <p class="home-eyebrow"><span></span><span id="hero-greet">Welcome, Teacher</span></p>
-            <h1 id="home-headline">Your classroom.<br/><em>Ready to teach.</em></h1>
-            <p class="home-intro">Sketch a new idea, teach from a slide deck, or pick up right where you left off.</p>
+            <h1 id="home-headline">A little room<br/> <em>for big ideas.</em></h1>
+            <p class="home-intro">Sketch, explain and build a lesson on a board that’s yours.</p>
             <div class="hero-actions" id="hero-actions"></div>
+          </div>
+          <div class="home-illustration" aria-hidden="true">
+            <div class="hero-sketch">
+              <div class="hero-sketch-top"><i></i><span>The idea board</span><b>01 / 01</b></div>
+              <svg viewBox="0 0 432 210" class="hero-ink" fill="none">
+                <path d="M32 45h364M32 86h364M32 127h364M32 168h364M80 24v157m54-157v157m54-157v157m54-157v157m54-157v157m54-157v157" stroke="#d6d5c6" stroke-width="1" stroke-dasharray="2 6" />
+                <path d="M44 168h350M63 180V27m-6 8 6-8 6 8m316 126 9 7-9 6" stroke="#273e41" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M65 143c52-12 67-10 91 4s59 11 84-29c28-45 55-29 77-37 28-10 37-25 55-43" stroke="#618d80" stroke-width="18" stroke-linecap="round" opacity=".24"/>
+                <path d="M65 143c52-12 67-10 91 4s59 11 84-29c28-45 55-29 77-37 28-10 37-25 55-43" stroke="#2f655b" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="240" cy="118" r="5" fill="#fbf6ea" stroke="#2f655b" stroke-width="2"/><circle cx="317" cy="81" r="5" fill="#fbf6ea" stroke="#2f655b" stroke-width="2"/>
+                <path d="M179 62c20 2 36 12 49 32m-15-5 15 5 2-14M314 46v16m-8-8h16" stroke="#ba7659" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M102 53c10-4 50-5 60 0l-2 21c-12 4-46 3-58 0z" fill="#f1ddaa" /><text x="114" y="68" fill="#665437" font-size="13" font-family="system-ui" font-weight="600">Explain</text>
+              </svg>
+              <div class="hero-sketch-bottom"><span class="sample-pen" data-icon="pen"></span><span class="sample-dot"></span><span class="sample-dot"></span><span class="sample-dot"></span></div>
+            </div>
           </div>
         </section>
         <div class="home-content">
           <section aria-labelledby="toolkit-title">
-            <div class="home-section-title"><div><p>WORKSPACE</p><h2 id="toolkit-title">Teaching toolkit</h2></div><span id="home-tool-count"></span></div>
+            <div class="home-section-title"><div><p>WORKSPACE</p><h2 id="toolkit-title">Your tools</h2></div><span id="home-tool-count"></span></div>
             <div class="launch-grid" id="launch-grid"></div>
           </section>
           <section class="home-designs" aria-labelledby="designs-title">
@@ -68,27 +82,33 @@
   <header class="workspace-controls" aria-label="Workspace controls">
     <button class="control-grip apps-grip" id="move-apps" type="button" title="Move Apps · drag or use arrow keys (Home resets)" aria-label="Move Apps button"><span class="grip-dots" aria-hidden="true"></span></button>
     <button class="workspace-apps" id="btn-apps" type="button" aria-expanded="false" aria-controls="workspace-menu">
-      <img src="./assets/icons/icon-192.png" alt="" width="25" height="25" /><span>Apps</span><span data-icon="chevron-down" aria-hidden="true"></span>
+      <img src="./assets/icons/icon-192.png" alt="" width="25" height="25" /><span id="launcher-label">Apps</span><span data-icon="chevron-down" aria-hidden="true"></span>
     </button>
   </header>
-  <aside class="workspace-menu" id="workspace-menu" aria-label="App launcher" hidden>
-    <div class="workspace-menu-head"><div><strong>SmartBoardOS</strong><small>Classroom workspace</small></div><button class="btn" id="btn-home">Home</button></div>
-    <button class="workspace-import" id="btn-import" type="button"><span class="workspace-import-icon" data-icon="file-plus" aria-hidden="true"></span><span><b>Import PDF / PPT</b><small>Add all pages or slides to your board</small></span><span data-icon="chevron-right" aria-hidden="true"></span></button>
-    <div class="workspace-tabs" role="group" aria-label="Launcher section">
-      <button class="btn" id="show-app-grid" aria-pressed="true" aria-controls="workspace-grid">Apps</button>
-      <button class="btn" id="show-board-actions" aria-pressed="false" aria-controls="workspace-board-actions">Board actions</button>
+  <aside class="workspace-menu" id="workspace-menu" aria-label="Workspace menu" hidden>
+    <div class="workspace-menu-head">
+      <div><strong id="launcher-title">Workspace</strong><small>SmartBoardOS</small></div>
+      <div class="menu-head-buttons"><button class="btn" id="btn-home">Home</button><button class="btn" id="btn-menu-close" aria-label="Close menu"><span data-icon="x" aria-hidden="true"></span></button></div>
     </div>
-    <div id="workspace-grid" class="workspace-grid"></div>
-    <div id="workspace-board-actions" class="workspace-board-actions" hidden></div>
+    <div class="menu-quick">
+      <button class="workspace-import" id="btn-import" type="button"><span class="workspace-import-icon" data-icon="file-plus" aria-hidden="true"></span><span><b>Import PDF / PPT</b><small>Add pages to the board</small></span></button>
+      <button class="workspace-import camera-quick" id="btn-camera" type="button"><span class="workspace-import-icon" data-icon="camera" aria-hidden="true"></span><span><b>Camera</b><small>Preview, inset &amp; recording</small></span></button>
+    </div>
     <div class="workspace-menu-foot">
-      <button class="btn" id="btn-customize" aria-expanded="false">Customize</button>
-      <button class="btn" id="btn-reset-controls" title="Return the Apps button and drawing toolbox to their original positions">Reset layout</button>
-      <button class="btn" id="btn-fullscreen" title="Toggle screen fullscreen (F)" aria-label="Toggle screen fullscreen"><span data-icon="fullscreen"></span></button>
-      <button class="btn" id="btn-cmd" aria-label="Search"><span data-icon="search"></span></button>
-      <button class="btn" id="btn-theme" aria-label="Toggle theme"><span data-icon="moon"></span></button>
-      <button class="btn" id="btn-install" hidden>Install web app</button>
+      <button class="btn" id="btn-reset-controls" title="Return the Menu button and drawing toolbox to their original positions">Reset layout</button>
+      <button class="btn" id="btn-fullscreen" title="Toggle screen fullscreen (F)" aria-label="Toggle screen fullscreen"><span data-icon="fullscreen" aria-hidden="true"></span><span>Fullscreen</span></button>
+      <button class="btn" id="btn-cmd" aria-label="Search"><span data-icon="search" aria-hidden="true"></span></button>
+      <button class="btn" id="btn-theme" aria-label="Toggle theme"><span data-icon="moon" aria-hidden="true"></span></button>
     </div>
-    <div id="workspace-custom" hidden></div>
+    <div class="workspace-menu-content">
+      <div id="workspace-board-actions" class="workspace-board-actions"></div>
+      <section class="launcher-apps" aria-labelledby="launcher-apps-title">
+        <div class="launcher-apps-head"><h3 id="launcher-apps-title">Classroom apps</h3><button class="btn" id="btn-customize" aria-expanded="false" aria-controls="workspace-custom">Customize</button></div>
+        <div id="workspace-grid" class="workspace-grid"></div>
+        <div id="workspace-custom" hidden></div>
+        <button class="btn" id="btn-install" hidden>Install web app</button>
+      </section>
+    </div>
   </aside>
 </div>
 
