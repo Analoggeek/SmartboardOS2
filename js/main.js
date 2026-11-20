@@ -182,57 +182,6 @@ function renderLaunch() {
 }
 
 /* =========================================================
-   Pointer effects (tilt and parallax)
-   ========================================================= */
-const TILT_TARGETS = '.launch-card, .widget, .stat, .tips-card, .dock-item';
-
-function initPointerEffects() {
-  let active = null;
-  let frame = 0;
-
-  const reset = (node) => {
-    if (!node) return;
-    node.style.setProperty('--rx', '0deg');
-    node.style.setProperty('--ry', '0deg');
-    node.style.setProperty('--mx', '50%');
-    node.style.setProperty('--my', '50%');
-    node.classList.remove('tilting');
-  };
-
-  document.addEventListener('pointermove', (e) => {
-    if (e.pointerType !== 'mouse' || getSettings().motion === false || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    if (!frame) {
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        const px = (e.clientX / window.innerWidth - 0.5) * 2;
-        const py = (e.clientY / window.innerHeight - 0.5) * 2;
-        document.documentElement.style.setProperty('--px', px.toFixed(3));
-        document.documentElement.style.setProperty('--py', py.toFixed(3));
-      });
-    }
-    const card = e.target.closest?.(TILT_TARGETS);
-    if (!card) {
-      if (active) { reset(active); active = null; }
-      return;
-    }
-    if (active && active !== card) reset(active);
-    active = card;
-    const r = card.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    const nx = (e.clientX - r.left) / r.width - 0.5;
-    const ny = (e.clientY - r.top) / r.height - 0.5;
-    card.style.setProperty('--ry', `${(nx * 11).toFixed(2)}deg`);
-    card.style.setProperty('--rx', `${(-ny * 9).toFixed(2)}deg`);
-    card.style.setProperty('--mx', `${((nx + 0.5) * 100).toFixed(1)}%`);
-    card.style.setProperty('--my', `${((ny + 0.5) * 100).toFixed(1)}%`);
-    card.classList.add('tilting');
-  }, { passive: true });
-
-  window.addEventListener('blur', () => { reset(active); active = null; });
-  document.addEventListener('pointerdown', () => { if (active) reset(active); active = null; }, { passive: true });
-}
-
-/* =========================================================
    stats
    ========================================================= */
 const TOOLBOX = [
@@ -435,7 +384,7 @@ function installApp() {
    global keyboard
    ========================================================= */
 function onGlobalKey(e) {
-  const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.backdrop.hidden ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape' && !palette.backdrop.hidden) { closePalette(); return; }
@@ -443,7 +392,11 @@ function onGlobalKey(e) {
   if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); wm.open('whiteboard'); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); wm.open('pdf'); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); wm.open('class'); return; }
-  if (e.key.toLowerCase() === 'f' && !mod) { toggleFullscreen(); }
+  if (e.key.toLowerCase() === 'f' && !mod && !e.repeat) {
+    const present = document.querySelector('.win.focused:not(.min) .wb-present');
+    if (present) present.click();
+    else toggleFullscreen();
+  }
 }
 
 /* =========================================================
@@ -462,7 +415,6 @@ async function boot() {
   setBoot(18, 'Loading display driver…');
 
   renderDock(); renderLaunch();
-  initPointerEffects();
   const widgets = initWidgets($('#widgets'), { onOpenApp: (id) => wm.open(id) });
   $('#btn-widget-add').addEventListener('click', () => widgets.openPicker());
 

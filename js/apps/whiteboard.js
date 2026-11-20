@@ -1,6 +1,6 @@
 /* Whiteboard — infinite-feel canvas with pages, shapes, text, images, PDF export */
 import { el, clamp, toast, downloadBlob, downloadURL, pickFiles, fileToDataURL, debounce, uid, beep } from '../utils.js';
-import { eraseStroke } from '../eraser.js';
+import { createEraserIndex, eraseStroke } from '../eraser.js';
 import { archiveWriter } from '../archive.js';
 import { isDocument } from '../document-import.js';
 import { icon, iconEl } from '../icons.js';
@@ -70,6 +70,10 @@ export async function mount({ root, params = {}, api, annotation }) {
   const canvas = el('canvas');
   stage.append(canvas);
   const ctx = canvas.getContext('2d');
+  const scene = document.createElement('canvas');
+  const sceneCtx = scene.getContext('2d', { alpha: false });
+  let sceneKey, sceneObjects, sceneRevision = 0, eraserFrame = 0;
+  const boundsCache = new WeakMap();
 
   const emptyHint = el('div', { class: 'wb-empty' },
     el('div', {}, el('b', { text: 'Board is ready' }), 'Draw, type, or drop an image / PDF page here'));
@@ -91,7 +95,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   const eraserRing = el('div', {
     style: {
       position: 'absolute', borderRadius: '50%', border: '1.5px solid var(--text-3)',
-      pointerEvents: 'none', display: 'none', zIndex: '4', transform: 'translate(-50%,-50%)',
+      pointerEvents: 'none', display: 'none', zIndex: '4', left: '0', top: '0', transform: 'translate(-50%,-50%)',
     },
   });
   stage.append(eraserRing);
@@ -195,12 +199,34 @@ export async function mount({ root, params = {}, api, annotation }) {
     })));
   }
   stage.addEventListener('pointerdown', (e) => { if (!bgMenu.contains(e.target)) toggleBackgrounds(false); });
-  const presentBtn = el('button', { class: 'tool-btn', title: 'Toggle fullscreen presentation', html: icon('fullscreen'),
-    onclick: () => {
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else root.closest('.win')?.requestFullscreen?.().catch(() => toast('Fullscreen not available', 'warn'));
-    },
-  });
+  const targetWindow = root.closest('.win');
+  let immersive = false;
+  let presentationPending = false;
+  const presentBtn = el('button', { class: 'tool-btn wb-present', title: 'Fullscreen presentation (F)', 'aria-pressed': 'false',
+    html: `${icon('fullscreen')}<span>Fullscreen</span>`, onclick: () => togglePresentation() });
+  function presentationChanged() {
+    const active = immersive || document.fullscreenElement === targetWindow;
+    presentBtn.setAttribute('aria-pressed', String(active));
+    presentBtn.querySelector('span').textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    requestAnimationFrame(resizeCanvas);
+    document.dispatchEvent(new Event('sbos:presentation'));
+  }
+  function setImmersive(active) {
+    immersive = active;
+    targetWindow?.classList.toggle('wb-immersive', active);
+    presentationChanged();
+  }
+  async function togglePresentation() {
+    if (!targetWindow || presentationPending) return;
+    if (immersive) { setImmersive(false); return; }
+    if (document.fullscreenElement === targetWindow) { await document.exitFullscreen().catch(() => {}); return; }
+    if (!document.fullscreenEnabled || !targetWindow.requestFullscreen || document.fullscreenElement) { setImmersive(true); return; }
+    presentationPending = true;
+    try { await targetWindow.requestFullscreen(); }
+    catch { if (root.isConnected) setImmersive(true); }
+    finally { presentationPending = false; }
+  }
+  document.addEventListener('fullscreenchange', presentationChanged);
 
   const imgBtn = el('button', { class: 'tool-btn', title: 'Insert image', html: icon('image'), onclick: insertImage });
   const emojiBtn = el('button', { class: 'tool-btn', title: 'Emoji & stickers', html: icon('smile') });
@@ -475,25 +501,28 @@ export async function mount({ root, params = {}, api, annotation }) {
     mark();
   }
 
-  function pushHistory() {
-    history.push(JSON.stringify(objects));
+  const snapshot = () => ({ objects: objects.slice(), bgImage: page().bgImage, bg: page().bg, bgColor: page().bgColor });
+  function restoreSnapshot(state) {
+    Object.assign(page(), state, { objects: state.objects.slice() });
+    objects = page().objects;
+  }
+  function pushHistory(previous = snapshot()) {
+    history.push(previous);
     if (history.length > 60) history.shift();
     future.length = 0;
     updateButtons();
   }
   function undo() {
     if (!history.length) return;
-    future.push(JSON.stringify(objects));
-    objects = JSON.parse(history.pop());
-    page().objects = objects;
+    future.push(snapshot());
+    restoreSnapshot(history.pop());
     selection = null;
     mark(); scheduleSave(); updateButtons();
   }
   function redo() {
     if (!future.length) return;
-    history.push(JSON.stringify(objects));
-    objects = JSON.parse(future.pop());
-    page().objects = objects;
+    history.push(snapshot());
+    restoreSnapshot(future.pop());
     selection = null;
     mark(); scheduleSave(); updateButtons();
   }
@@ -513,10 +542,13 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   /* ---------------- drawing ---------------- */
   function resizeCanvas() {
-    const r = stage.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.max(1, Math.round(r.width * dpr));
-    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const w = stage.clientWidth, h = stage.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(5500000 / (w*h)));
+    const pixelsW = Math.max(1, Math.round(w*dpr)), pixelsH = Math.max(1, Math.round(h*dpr));
+    if (canvas.width === pixelsW && canvas.height === pixelsH && canvas.__dpr === dpr) return;
+    canvas.width = scene.width = pixelsW;
+    canvas.height = scene.height = pixelsH;
     canvas.__dpr = dpr;
     mark();
   }
@@ -640,27 +672,42 @@ export async function mount({ root, params = {}, api, annotation }) {
 
   function draw() {
     const dpr = canvas.__dpr || 1;
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    const w = canvas.width / dpr, h = canvas.height / dpr;
     const light = document.documentElement.dataset.theme === 'light';
-    ctx.save();
-    ctx.translate(view.x, view.y);
-    ctx.scale(view.scale, view.scale);
-    drawBackground(ctx, w, h, page().bg, light);
-    if (page().bgImage) drawBgImage(ctx, page().bgImage);
-    for (const o of objects) drawObject(ctx, o);
-    if (live && !live.moving && !live.resizing) drawObject(ctx, live);
+    const pg = page();
+    const staticKey = [canvas.width,canvas.height,view.x,view.y,view.scale,light,pg.bg,pg.bgColor,objects.length,sceneRevision].join('|');
+    if (sceneObjects !== objects || sceneKey !== staticKey || live?.moving || live?.resizing) {
+      sceneKey = staticKey; sceneObjects = objects;
+      sceneCtx.setTransform(dpr,0,0,dpr,0,0);
+      sceneCtx.fillStyle = pg.bgColor || BG_FILLS[pg.bg] || (light ? '#ffffff' : cssVar('--canvas-bg','#0e1424'));
+      sceneCtx.fillRect(0,0,w,h);
+      sceneCtx.save(); sceneCtx.translate(view.x, view.y); sceneCtx.scale(view.scale, view.scale);
+      drawBackground(sceneCtx,w,h,pg.bg,light);
+      if (pg.bgImage) drawBgImage(sceneCtx, pg.bgImage);
+      const visible = [-view.x/view.scale,-view.y/view.scale,(w-view.x)/view.scale,(h-view.y)/view.scale];
+      for (const o of objects) {
+        if (o.type === 'stroke' || o.type === 'image') {
+          const b = eraseBounds(o);
+          if (b && (b.x > visible[2] || b.x+b.w < visible[0] || b.y > visible[3] || b.y+b.h < visible[1])) continue;
+        }
+        drawObject(sceneCtx,o);
+      }
+      sceneCtx.restore();
+    }
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.drawImage(scene,0,0);
+    ctx.setTransform(dpr,0,0,dpr,dpr*view.x,dpr*view.y);
+    ctx.scale(view.scale,view.scale);
+    if (live?.type && live.tool !== 'laser') drawObject(ctx,live);
     if (selection && objects.includes(selection)) drawSelection(ctx);
-    for (const l of laser) drawObject(ctx, l);
-    ctx.restore();
-    zoomLabel.textContent = `${Math.round(view.scale * 100)}%`;
+    for (const l of laser) drawObject(ctx,l);
+    const text = `${Math.round(view.scale * 100)}%`;
+    if (zoomLabel.textContent !== text) zoomLabel.textContent = text;
   }
 
   function drawBgImage(c, bgImg) {
     const img = getImage(bgImg.src);
-    if (!img || !img.complete) return;
+    if (!img || !img.complete || !img.naturalWidth) return;
     c.drawImage(img, bgImg.x, bgImg.y, bgImg.w, bgImg.h);
     c.strokeStyle = 'rgba(127,127,127,.25)';
     c.lineWidth = 1;
@@ -828,7 +875,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   function getImage(src) {
     if (imgCache.has(src)) return imgCache.get(src);
     const img = new Image();
-    img.onload = () => mark();
+    img.onload = () => { sceneRevision++; mark(); };
     img.src = src;
     imgCache.set(src, img);
     return img;
@@ -871,7 +918,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   function objectBounds(o) {
     if (o.type === 'stroke') {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      const pad = (o.pressured ? o.size * 1.4 : o.size) / 2 + 2;
+      const pad = o.size * (o.tool === 'highlighter' ? 1.6 : o.pressured ? .85 : .5) + 2;
       o.points.forEach((pt) => {
         minX = Math.min(minX, pt.x - pad); maxX = Math.max(maxX, pt.x + pad);
         minY = Math.min(minY, pt.y - pad); maxY = Math.max(maxY, pt.y + pad);
@@ -896,12 +943,14 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
 
   function moveObject(o, dx, dy) {
+    boundsCache.delete(o); sceneRevision++;
     if (o.type === 'stroke') o.points.forEach((pt) => { pt.x += dx; pt.y += dy; });
     else if (o.type === 'shape') { o.x0 += dx; o.x1 += dx; o.y0 += dy; o.y1 += dy; }
     else { o.x += dx; o.y += dy; }
   }
 
   function scaleObject(o, f, ax, ay) {
+    boundsCache.delete(o); sceneRevision++;
     const sx = (v) => ax + (v - ax) * f;
     const sy = (v) => ay + (v - ay) * f;
     if (o.type === 'stroke') {
@@ -966,26 +1015,47 @@ export async function mount({ root, params = {}, api, annotation }) {
     toast('Item duplicated', 'ok', 1400);
   }
 
-  function eraseAt(p) {
+  function eraseBounds(o) {
+    if (boundsCache.has(o)) return boundsCache.get(o);
+    let box = objectBounds(o);
+    if (o.type === 'text') box = { x: o.x-8, y: o.y-8, w: 408, h: o.fontSize*2+8 };
+    if (o.type === 'shape') box = { x: box.x-10, y: box.y-10, w: box.w+20, h: box.h+20 };
+    boundsCache.set(o,box);
+    return box;
+  }
+  function flushEraser() {
+    if (eraserFrame) cancelAnimationFrame(eraserFrame);
+    eraserFrame = 0;
+    if (!live?.erasing) return;
+    const { index, samples, radius, step, before } = live;
     let changed = false;
-    const result = objects.flatMap(o => {
+    const clip = (o,p) => {
       if (o.type === 'stroke' && !eraseWhole) {
-        const remaining = eraseStroke(o.points, p, Math.max(8, size * 1.4) / view.scale + o.size / 2);
-        if (remaining === null) return [o];
-        changed = true;
-        return remaining.map(points => ({ ...o, points }));
+        const parts = eraseStroke(o.points,p,radius + o.size*(o.tool === 'highlighter' ? 1.6 : .55));
+        return parts && parts.map(points => ({ ...o, points }));
       }
-      if (!hitObject(o, p)) return [o];
-      changed = true;
-      return [];
-    });
-    if (changed) {
-      objects = result;
-      page().objects = objects;
-      mark();
-      scheduleSave();
-      updateButtons();
+      return hitObject(o,p) ? [] : null;
+    };
+    for (const p of samples.splice(0)) {
+      const from = live.last || p;
+      const count = Math.min(64,Math.max(1,Math.ceil(Math.hypot(p.x-from.x,p.y-from.y)/step)));
+      for (let j=1;j<=count;j++) {
+        const t = j/count;
+        changed = index.visit({ x: from.x+(p.x-from.x)*t, y: from.y+(p.y-from.y)*t },clip) || changed;
+      }
+      live.last = p;
     }
+    if (!changed) return;
+    if (!live.dirty) { live.dirty = true; pushHistory(before); }
+    objects = index.objects();
+    page().objects = objects;
+    mark(); updateButtons();
+  }
+  function queueErase(p) {
+    const samples = live.samples;
+    if (samples.length >= 24) samples[samples.length-1] = p;
+    else samples.push(p);
+    if (!eraserFrame) eraserFrame = requestAnimationFrame(flushEraser);
   }
 
   canvas.addEventListener('pointerdown', (e) => {
@@ -997,7 +1067,8 @@ export async function mount({ root, params = {}, api, annotation }) {
     canvas.setPointerCapture(e.pointerId);
 
     if (pointers.size === 2) {
-      // pinch start
+      // Pinching ends an eraser gesture without losing work already applied.
+      if (live?.erasing) { flushEraser(); if (live.dirty) scheduleSave(); }
       live = null;
       const [a, b] = Array.from(pointers.values());
       pinch = {
@@ -1032,11 +1103,12 @@ export async function mount({ root, params = {}, api, annotation }) {
         const b = objectBounds(selection);
         const grab = 16 / view.scale;
         if (b && Math.abs(p.x - (b.x + b.w)) < grab && Math.abs(p.y - (b.y + b.h)) < grab) {
-          live = {
-            resizing: true, obj: selection, anchor: { x: b.x, y: b.y },
-            base: JSON.parse(JSON.stringify(selection)), w0: Math.max(4, b.w), h0: Math.max(4, b.h),
-            start: p, snapshot: JSON.stringify(objects), dirty: false,
-          };
+          const previous = snapshot();
+          const original = selection;
+          selection = structuredClone(original);
+          objects[objects.indexOf(original)] = selection;
+          live = { resizing: true, obj: selection, anchor: { x: b.x, y: b.y }, base: original,
+            w0: Math.max(4,b.w), h0: Math.max(4,b.h), start: p, snapshot: previous, dirty: false };
           return;
         }
       }
@@ -1044,7 +1116,10 @@ export async function mount({ root, params = {}, api, annotation }) {
       selection = hit || null;
       updateButtons();
       if (hit) {
-        live = { moving: true, obj: hit, last: p, start: p, snapshot: JSON.stringify(objects), dirty: false };
+        const previous = snapshot();
+        selection = structuredClone(hit);
+        objects[objects.indexOf(hit)] = selection;
+        live = { moving: true, obj: selection, last: p, start: p, snapshot: previous, dirty: false };
       }
       mark();
       return;
@@ -1056,9 +1131,10 @@ export async function mount({ root, params = {}, api, annotation }) {
       return;
     }
     if (erasing) {
-      pushHistory();
-      live = { erasing: true };
-      eraseAt(p);
+      const radius = Math.max(8,size*1.4)/view.scale;
+      live = { erasing: true, index: createEraserIndex(objects,eraseBounds,Math.max(radius+2,(size*1.2+14)/view.scale)),
+        radius, step: radius*.85, before: snapshot(), samples: [p] };
+      flushEraser();
       return;
     }
     if (tool === 'text') {
@@ -1093,8 +1169,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       const r = stage.getBoundingClientRect();
       eraserRing.style.display = 'block';
       eraserRing.style.width = eraserRing.style.height = `${Math.max(16, size * 3)}px`;
-      eraserRing.style.left = `${e.clientX - r.left}px`;
-      eraserRing.style.top = `${e.clientY - r.top}px`;
+      eraserRing.style.transform = `translate3d(${e.clientX-r.left}px,${e.clientY-r.top}px,0) translate(-50%,-50%)`;
     } else if (eraserRing.style.display !== 'none') {
       eraserRing.style.display = 'none';
     }
@@ -1122,7 +1197,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       return;
     }
     const p = toWorld(e);
-    if (live.erasing) { eraseAt(p); return; }
+    if (live.erasing) { queueErase(p); return; }
     if (live.moving) {
       const dx = p.x - live.last.x;
       const dy = p.y - live.last.y;
@@ -1138,7 +1213,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       const f = clamp((p.x - live.anchor.x) / live.w0, 0.12, 14);
       live.obj = selection;
       Object.keys(selection).forEach((k) => { delete selection[k]; });
-      Object.assign(selection, JSON.parse(JSON.stringify(live.base)));
+      Object.assign(selection, structuredClone(live.base));
       scaleObject(selection, f, live.anchor.x, live.anchor.y);
       mark();
       return;
@@ -1195,7 +1270,11 @@ export async function mount({ root, params = {}, api, annotation }) {
     }
     const wasPan = live.pan;
     if (wasPan) canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
-    if (live.erasing) { live = null; return; }
+    if (live.erasing) {
+      if (e.type === 'pointerup') queueErase(toWorld(e));
+      flushEraser(); if (live.dirty) scheduleSave();
+      live = null; return;
+    }
     if (live.type === 'stroke' && live.tool !== 'laser') {
       if (live.points.length === 1) {
         const p = live.points[0];
@@ -1327,6 +1406,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       if (opts.asBackground) {
         const kk = Math.min((r.width * 0.94) / view.scale / nw, (r.height * 0.94) / view.scale / nh);
         const bw = nw * kk, bh = nh * kk;
+        sceneRevision++;
         page().bgImage = { src, x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
         page().bg = 'plain';
         setColor('#0f172a'); // write on top of a white page
@@ -1502,7 +1582,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     paintBgPattern(c, b, pg.bg, light, 1);
     if (pg.bgImage) {
       const img = getImage(pg.bgImage.src);
-      if (img.complete) c.drawImage(img, pg.bgImage.x, pg.bgImage.y, pg.bgImage.w, pg.bgImage.h);
+      if (img.complete && img.naturalWidth) c.drawImage(img, pg.bgImage.x, pg.bgImage.y, pg.bgImage.w, pg.bgImage.h);
     }
     pg.objects.forEach((o) => drawObject(c, o));
     c.restore();
@@ -1607,7 +1687,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (e.key === 'Escape' && (colorPop.style.display === 'grid' || !bgMenu.hidden)) {
       toggleColors(false); toggleBackgrounds(false); return;
     }
-    const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
     if (typing) return;
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
@@ -1616,6 +1696,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (e.key === ' ') { spaceHeld = true; canvas.style.cursor = 'grab'; }
     const map = { s: 'select', p: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', o: 'ellipse', t: 'text', z: 'laser', v: 'pan' };
     const k = e.key.toLowerCase();
+    if (e.key === 'Escape' && immersive) { setImmersive(false); return; }
     if (e.key === 'Escape' && pendingEmoji) { pendingEmoji = null; updateEmojiHint(); return; }
     if (e.key === 'Escape' && selection) { selection = null; updateButtons(); mark(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteSelection(); return; }
@@ -1645,7 +1726,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   setTool(tool);
   if (annotation) { getImage(annotation.image.src); requestAnimationFrame(fitView); }
   if (!annotation && floatState.on) toggleFloat(true);
-  Object.values(EMOJI_SVG).forEach((src) => getImage(src));
+  // Sticker images are loaded lazily on first use.
 
   const ro = new ResizeObserver(() => resizeCanvas());
   ro.observe(stage);
@@ -1667,12 +1748,18 @@ export async function mount({ root, params = {}, api, annotation }) {
   handleParams(params);
 
   return {
+    togglePresentation,
     save: () => saveSession(false, true),
     onParams: handleParams,
     onResize: () => resizeCanvas(),
     onClose: () => {
       const saved = saveSession(false, true);
       ro.disconnect();
+      document.removeEventListener('fullscreenchange', presentationChanged);
+      if (immersive) setImmersive(false);
+      if (document.fullscreenElement === targetWindow) document.exitFullscreen().catch(() => {});
+      if (raf) cancelAnimationFrame(raf);
+      if (eraserFrame) cancelAnimationFrame(eraserFrame);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('sbos:theme', onTheme);

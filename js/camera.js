@@ -10,6 +10,7 @@ export function capturePhoto({ title = 'Take a photo' } = {}) {
   return new Promise((resolve) => {
     let stream = null;
     let done = false;
+    let pending = 0;
     let facing = 'environment';
 
     const video = el('video', {
@@ -59,10 +60,13 @@ export function capturePhoto({ title = 'Take a photo' } = {}) {
       }
       try {
         stop();
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        const request = ++pending;
+        const next = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
           audio: false,
         });
+        if (done || request !== pending) { next.getTracks().forEach(track => track.stop()); return; }
+        stream = next;
         video.srcObject = stream;
         await video.play().catch(() => {});
         shoot.disabled = false;

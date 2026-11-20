@@ -1,3 +1,4 @@
+import { createChromaRenderer } from '../chroma.js';
 import { el } from '../utils.js';
 
 const stopTracks = (stream) => stream?.getTracks().forEach(track => track.stop());
@@ -18,6 +19,8 @@ export function mount({ root }) {
   const mode = select([['screen', 'SmartBoardOS window'], ['camera', 'Camera video'], ['audio', 'Microphone only']]);
   const size = select(resolutions.map(([w, h], i) => [i, `${w} × ${h}${h === 2160 ? ' · 4K' : ''}`]));
   size.value = '1';
+  const frameRate = select([[15, '15 fps · low load'], [24, '24 fps · balanced'], [30, '30 fps · smooth']]);
+  frameRate.value = '24';
   const mic = el('input', { type: 'checkbox' });
   const inset = el('input', { type: 'checkbox' });
   const followCamera = el('input', { type: 'checkbox' });
@@ -28,12 +31,24 @@ export function mount({ root }) {
   const status = el('p', { role: 'status', text: 'Nothing is captured until you start preview or recording.' });
   const video = el('video', { muted: true, autoplay: true, playsinline: true });
   video.muted = true;
-  const canvas = el('canvas', { width: 640, height: 360 });
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const preview = el('div', { class: 'studio-preview', hidden: true }, video, canvas);
+  const preview = el('div', { class: 'studio-preview', hidden: true }, video);
+  let chroma;
+  let lastFrame = -Infinity;
+  let lastMediaTime = -1;
+  let keyRGB = [0, 160, 64];
+  keyColor.oninput = () => { keyRGB = keyColor.value.slice(1).match(/../g).map(value => parseInt(value,16)); };
+  const initChroma = () => {
+    if (!chroma) {
+      chroma = createChromaRenderer(el('canvas'), el('canvas'));
+      preview.append(chroma.canvas);
+      chroma.canvas.hidden = true;
+    }
+    chroma.resize(video.videoWidth, video.videoHeight);
+    return chroma;
+  };
   const overlay = el('div', { class: 'studio-camera-overlay', hidden: true, 'aria-hidden': 'true' }, preview);
   const placeOverlays = () => {
-    const layer = document.fullscreenElement || document.body;
+    const layer = document.fullscreenElement || document.querySelector('.wb-immersive:not(.min):not(.closing)') || document.body;
     layer.append(overlay);
     if (indicator) layer.append(indicator);
   };
@@ -50,7 +65,8 @@ export function mount({ root }) {
   let queueDepth = 0;
   placeOverlays();
   document.addEventListener('fullscreenchange', placeOverlays);
-  const lockInputs = locked => [mode, size, mic, inset, followCamera, key, device].forEach(input => { input.disabled = locked; });
+  document.addEventListener('sbos:presentation', placeOverlays);
+  const lockInputs = locked => [mode, size, frameRate, mic, inset, followCamera, key, device].forEach(input => { input.disabled = locked; });
 
   async function refreshDevices(auto = false) {
     const cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.deviceId);
@@ -66,37 +82,57 @@ export function mount({ root }) {
     }
   }
 
-  function paint() {
-    animation = requestAnimationFrame(paint);
-    const keyed = key.checked;
-    video.hidden = keyed;
-    canvas.hidden = !keyed;
-    if (!keyed || video.readyState < 2) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const rgb = keyColor.value.slice(1).match(/../g).map(n => parseInt(n, 16));
-    const limit = Number(tolerance.value);
-    for (let i = 0; i < image.data.length; i += 4) {
-      const distance = Math.hypot(image.data[i] - rgb[0], image.data[i + 1] - rgb[1], image.data[i + 2] - rgb[2]);
-      image.data[i + 3] = Math.round(Math.max(0, Math.min(1, (distance - limit + 18) / 36)) * 255);
-    }
-    ctx.putImageData(image, 0, 0);
+  // Raw preview uses the video compositor directly: no per-frame JS work.
+  const useVideoFrames = 'requestVideoFrameCallback' in video;
+  function stopPaint() {
+    if (animation == null) return;
+    if (useVideoFrames) video.cancelVideoFrameCallback(animation);
+    else cancelAnimationFrame(animation);
+    animation = null;
   }
+  function queuePaint() {
+    if (!camera || !key.checked || animation != null) return;
+    animation = useVideoFrames ? video.requestVideoFrameCallback(paint) : requestAnimationFrame(paint);
+  }
+  function paint(now) {
+    animation = null;
+    if (!camera || !key.checked) return;
+    if (video.readyState >= 2) {
+      const renderer = initChroma();
+      const rate = Math.min(Number(frameRate.value), renderer.software ? 12 : 30);
+      if (now - lastFrame >= 1000/rate - 2 && (useVideoFrames || video.currentTime !== lastMediaTime)) {
+        lastFrame = now;
+        lastMediaTime = video.currentTime;
+        try {
+          renderer.paint(video, keyRGB, Number(tolerance.value));
+          renderer.canvas.hidden = false;
+          video.classList.add('studio-video-source');
+        } catch { video.classList.remove('studio-video-source'); renderer.canvas.hidden = true; }
+      }
+    }
+    queuePaint();
+  }
+  key.onchange = () => {
+    if (key.checked) { lastFrame = -Infinity; lastMediaTime = -1; queuePaint(); }
+    else { stopPaint(); video.classList.remove('studio-video-source'); if (chroma) chroma.canvas.hidden = true; }
+  };
 
   function stopPreview() {
     generation++;
-    cancelAnimationFrame(animation);
+    stopPaint(); lastFrame = -Infinity; lastMediaTime = -1;
+    video.classList.remove('studio-video-source'); if (chroma) chroma.canvas.hidden = true;
     stopTracks(camera); camera = null; video.srcObject = null;
     preview.hidden = overlay.hidden = true;
   }
 
-  async function startCamera() {
+  async function startCamera(full = false) {
     stopPreview();
     const request = generation;
     try {
-      const [width, height] = resolutions[size.value];
+      const [width, height] = resolutions[full && !key.checked ? size.value : 0];
+      const fps = Math.min(Number(frameRate.value), full ? 30 : 24);
       const stream = await navigator.mediaDevices.getUserMedia({ video: {
-        width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: 30, max: 30 },
+        width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: fps, max: fps },
         ...(device.value ? { deviceId: { exact: device.value } } : {}),
       }, audio: false });
       if (closed || request !== generation) { stopTracks(stream); return false; }
@@ -107,8 +143,7 @@ export function mount({ root }) {
       video.srcObject = camera;
       overlay.hidden = preview.hidden = false;
       const config = stream.getVideoTracks()[0].getSettings();
-      canvas.height = Math.max(1, Math.round(canvas.width * (config.height || 360) / (config.width || 640)));
-      paint();
+      if (key.checked) { initChroma(); queuePaint(); }
       await refreshDevices();
       status.textContent = `Camera ready · ${config.width || '?'} × ${config.height || '?'}`;
       return true;
@@ -118,7 +153,7 @@ export function mount({ root }) {
   const begin = el('button', { class: 'btn primary', text: 'Start recording', onclick: start });
   const stop = el('button', { class: 'btn danger', text: 'Stop recording', onclick: () => recorder?.state === 'recording' && recorder.stop() });
   stop.disabled = true;
-  const previewButton = el('button', { class: 'btn', text: 'Start / switch camera preview', onclick: startCamera });
+  const previewButton = el('button', { class: 'btn', text: 'Start / switch camera preview', onclick: () => startCamera() });
   const stopButton = el('button', { class: 'btn', text: 'Turn off camera', onclick: () => { followCamera.checked = false; stopPreview(); } });
   followCamera.onchange = async () => {
     if (followCamera.checked && !camera && !await startCamera()) followCamera.checked = false;
@@ -132,6 +167,7 @@ export function mount({ root }) {
     pending = true; lockInputs(true); begin.disabled = previewButton.disabled = stopButton.disabled = true;
     const kind = mode.value;
     const [width, height] = resolutions[size.value];
+    const fps = Number(frameRate.value);
     const streams = [];
     let id;
     let output;
@@ -139,14 +175,15 @@ export function mount({ root }) {
     try {
       if (!window.MediaRecorder) throw new Error('Recording is not supported on this device.');
       if (kind === 'screen') {
-        const screen = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: 30, max: 30 } }, audio: false });
+        const screen = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: width, max: width }, height: { ideal: height, max: height }, frameRate: { ideal: fps, max: fps } }, audio: false });
         streams.push(screen);
         output = new MediaStream(screen.getVideoTracks());
         if (inset.checked && !camera && !await startCamera()) throw new Error('Camera inset is enabled, but no camera is available.');
         if (!inset.checked) stopPreview();
       } else if (kind === 'camera') {
-        if (!await startCamera()) throw new Error('No camera available.');
-        const source = key.checked ? canvas.captureStream(24) : camera;
+        if (!await startCamera(true)) throw new Error('No camera available.');
+        if (key.checked) await video.play();
+        const source = key.checked ? initChroma().canvas.captureStream(Math.min(fps, chroma.software ? 12 : 30)) : camera;
         if (source !== camera) streams.push(source);
         output = new MediaStream(source.getVideoTracks());
       } else { stopPreview(); output = new MediaStream(); }
@@ -158,7 +195,7 @@ export function mount({ root }) {
       if (closed) throw new Error('Recording Studio was closed.');
       const mimeType = (kind === 'audio' ? ['audio/webm;codecs=opus', 'audio/webm'] : ['video/webm;codecs=vp8,opus', 'video/webm']).find(x => MediaRecorder.isTypeSupported(x));
       if (!mimeType) throw new Error('No supported WebM encoder.');
-      recorder = new MediaRecorder(output, { mimeType, ...(kind === 'audio' ? {} : { videoBitsPerSecond: height === 2160 ? 16000000 : height === 1440 ? 10000000 : 6000000 }) });
+      recorder = new MediaRecorder(output, { mimeType, ...(kind === 'audio' ? {} : { videoBitsPerSecond: Math.min(18000000, Math.max(1800000, Math.round((output.getVideoTracks()[0]?.getSettings().width || width) * (output.getVideoTracks()[0]?.getSettings().height || height) * fps * .13))) }) });
       id = await library.start(kind);
       if (closed) throw new Error('Recording Studio was closed.');
       let writes = Promise.resolve();
@@ -203,7 +240,7 @@ export function mount({ root }) {
   navigator.mediaDevices?.addEventListener('devicechange', onDevice);
   refreshDevices().catch(() => {});
   host.append(el('p', { text: 'Record this app, a camera, or just your microphone. Resolution depends on the source and hardware. Video uses WebM; no upload.' }),
-    row('Capture source', mode), row('Maximum resolution (up to 4K)', size), row('Include microphone', mic), row('Include camera inset in window recording', inset),
+    row('Capture source', mode), row('Maximum recording resolution', size), row('Frame rate', frameRate), row('Include microphone', mic), row('Include camera inset in window recording', inset),
     row('Camera device', device), row('Enable auto-preview of new cameras (starts a camera preview now)', followCamera),
     row('Chroma key · requires a solid backdrop', key), row('Backdrop colour', keyColor), row('Key tolerance', tolerance),
     el('p', { text: 'A phone must already appear as a webcam on your computer. Keyed camera-only video runs at a lower resolution for responsiveness; use window mode for a keyed inset.' }),
@@ -216,8 +253,9 @@ export function mount({ root }) {
     onClose: () => {
       closed = true;
       if (recorder?.state === 'recording') recorder.stop();
-      stopPreview(); overlay.remove();
+      stopPreview(); chroma?.dispose(); overlay.remove();
       document.removeEventListener('fullscreenchange', placeOverlays);
+      document.removeEventListener('sbos:presentation', placeOverlays);
       navigator.mediaDevices?.removeEventListener('devicechange', onDevice);
     },
   };
