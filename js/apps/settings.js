@@ -115,7 +115,14 @@ export function mount({ root }) {
       } });
       button.disabled = !bridge;
       group3.append(row('Desktop updates', 'Connect to the internet to download the latest full offline installer.', button), status);
+      group3.append(row('Lesson folder', 'Daily board and note checkpoints, PDF ink and recordings in Documents → SmartBoardOS.',
+        el('button', { class: 'btn', text: 'Open folder', onclick: async () => {
+          try { if (await window.smartboardLibrary.open()) throw new Error(); }
+          catch { toast('Could not open the lesson folder', 'warn'); }
+        } })));
     } else {
+      group3.append(row('Full desktop installer', 'Windows and Mac, including screen recording and local folders.',
+        el('a', { class: 'btn', href: './install.html', text: 'Get offline installer' })));
       const installBtn = el('button', { class: 'btn', html: `${icon('download')}<span>Install</span>`, onclick: () => window.__sbos.install() });
       group3.append(row('Install web app', 'After its first online load, the web app also works offline.', installBtn));
     }
@@ -147,7 +154,7 @@ export function mount({ root }) {
     );
 
     host.append(group1, group2, groupPen, group3, group4, about);
-    host.append(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '4px 0 20px' }, text: 'Made for teachers — every file stays on your device.' }));
+    host.append(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '4px 0 20px' }, text: 'Developed by Analoggeek · Made for teachers'  }));
   }
 
   function row(label, desc, control) {

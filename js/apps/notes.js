@@ -1,5 +1,6 @@
 /* Lesson notes — quick, autosaving notes for the teacher */
 import { el, toast, relTime, uid, debounce, downloadText } from '../utils.js';
+import { archiveWriter } from '../archive.js';
 import { icon } from '../icons.js';
 import { state } from '../db.js';
 
@@ -24,7 +25,9 @@ export function mount({ root, api }) {
   const app = el('div', { class: 'app' }, toolbar, wrap);
   root.append(app);
 
-  const persist = debounce(() => state.set('notes', notes), 400);
+  const archive = archiveWriter('notes');
+  const persist = debounce(() => { state.set('notes', notes); archive.schedule(notes); }, 400);
+  const save = () => { state.set('notes', notes); return archive.write(notes); };
 
   function current() { return notes.find((n) => n.id === currentId) || null; }
 
@@ -102,7 +105,7 @@ export function mount({ root, api }) {
         notes.unshift(n); currentId = n.id; persist(); renderList(); loadIntoEditor();
       }
     },
-    save: () => state.set('notes', notes),
-    onClose: () => state.set('notes', notes),
+    save,
+    onClose: save,
   };
 }

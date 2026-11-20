@@ -2,6 +2,7 @@
 import { el, toast, pickFiles, clamp, relTime, debounce } from '../utils.js';
 import { icon } from '../icons.js';
 import { idb } from '../db.js';
+import { ACCEPT, isDocument, toPdf } from '../document-import.js';
 import { mount as mountBoard } from './whiteboard.js';
 
 const pdfjsLib = window.pdfjsLib;
@@ -28,9 +29,9 @@ export function mount({ root, params, api }) {
 
   const drop = el('div', { class: 'pdf-drop' },
     el('div', { class: 'big-ico', html: icon('pdf') }),
-    el('h3', { text: 'Open a PDF to present' }),
-    el('p', { text: 'Drag & drop a PDF here, or pick a file from your device. Everything stays on this device — nothing is uploaded.' }),
-    el('button', { class: 'btn primary', html: `${icon('folder')}<span>Choose PDF</span>`, onclick: openPicker }),
+    el('h3', { text: 'Open a document to present' }),
+    el('p', { text: 'Choose PDF, PPTX, DOCX, TXT or Markdown. Office quick import extracts text; choose a PDF export for the full layout and images. Nothing is uploaded.' }),
+    el('button', { class: 'btn primary', html: `${icon('folder')}<span>Choose file</span>`, onclick: openPicker }),
     el('div', { class: 'recent-list', style: { marginTop: '18px', textAlign: 'left' } })
   );
 
@@ -49,7 +50,7 @@ export function mount({ root, params, api }) {
   const annotatePanel = el('div', { class: 'pdf-annotation-panel', hidden: true }, annotateBar, annotateHost);
   const toolbar = el('div', { class: 'app-toolbar pdf-toolbar' },
     annotateBtn,
-    el('button', { class: 'tool-btn', html: icon('folder'), title: 'Open PDF', onclick: openPicker }),
+    el('button', { class: 'tool-btn', html: icon('folder'), title: 'Open document', onclick: openPicker }),
     el('div', { class: 'sep' }),
     el('button', { class: 'tool-btn', html: icon('chevron-left'), title: 'Previous page', onclick: () => go(pageNum - 1) }),
     pageInput, pageTotal,
@@ -71,25 +72,30 @@ export function mount({ root, params, api }) {
 
   /* ---------- file handling ---------- */
   function openPicker() {
-    pickFiles({ accept: 'application/pdf' }).then((files) => { if (files[0]) loadFile(files[0]); });
+    pickFiles({ accept: ACCEPT }).then((files) => { if (files[0]) loadFile(files[0]); });
   }
 
   async function loadFile(file) {
     try {
       status.textContent = `Loading ${file.name}…`;
-      const buf = await file.arrayBuffer();
+      const { buffer: buf, imported } = await toPdf(file);
       await loadBuffer(buf.slice(0), file.name);
+      if (imported) toast('Quick text import ready. For original layout and images, use PDF.', 'info', 5000);
       // keep a copy for "recents" (max 8 docs, 40 MB guard)
       if (buf.byteLength < 40 * 1024 * 1024) {
         const recents = (await idb.get('docs', 'recents')) || [];
-        const trimmed = recents.filter((r) => r.name !== file.name).slice(0, 7);
+        let bytes = buf.byteLength;
+        const trimmed = recents.filter(r => {
+          if (r.name === file.name || bytes + r.size > 80 * 1024 * 1024) return false;
+          bytes += r.size; return true;
+        }).slice(0, 7);
         trimmed.unshift({ name: file.name, size: buf.byteLength, ts: Date.now(), data: buf });
         await idb.set('docs', 'recents', trimmed);
         renderRecents();
       }
     } catch (e) {
       console.error(e);
-      toast('Could not read that PDF', 'err');
+      toast(e.message || 'Could not read that document', 'err');
       status.textContent = 'Failed to load document';
     }
   }
@@ -288,14 +294,14 @@ export function mount({ root, params, api }) {
   view.addEventListener('drop', (e) => {
     e.preventDefault();
     const f = e.dataTransfer?.files?.[0];
-    if (f && f.type === 'application/pdf') loadFile(f);
+    if (isDocument(f)) loadFile(f);
   });
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hover'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
   drop.addEventListener('drop', (e) => {
     e.preventDefault(); e.stopPropagation(); drop.classList.remove('hover');
     const f = e.dataTransfer?.files?.[0];
-    if (f && f.type === 'application/pdf') loadFile(f);
+    if (isDocument(f)) loadFile(f);
   });
   pageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { go(Number(pageInput.value) || 1); pageInput.blur(); }

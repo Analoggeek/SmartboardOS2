@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/pages.yml
       - index.html
+      - install.html
       - manifest.webmanifest
       - sw.js
       - assets/**
@@ -36,7 +37,7 @@ jobs:
       - name: Stage the offline web app only
         run: |
           mkdir site
-          cp index.html manifest.webmanifest sw.js site/
+          cp index.html install.html manifest.webmanifest sw.js site/
           cp -R assets css js vendor site/
       - uses: actions/upload-pages-artifact@v3
         with:

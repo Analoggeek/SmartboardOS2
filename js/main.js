@@ -10,6 +10,8 @@ import * as MediaApp from './apps/media.js';
 import * as ClassApp from './apps/class.js';
 import * as NotesApp from './apps/notes.js';
 import * as CalculatorApp from './apps/calculator.js';
+import * as MapsApp from './apps/maps.js';
+import * as RecordingApp from './apps/recording.js';
 import * as SettingsApp from './apps/settings.js';
 import { capturePhoto } from './camera.js';
 
@@ -28,7 +30,7 @@ const APPS = [
     color: '#6366f1', soft: 'rgba(99,102,241,.16)', width: 1120, height: 720, mount: Whiteboard.mount,
   },
   {
-    id: 'pdf', name: 'PDF Studio', tagline: 'Present & annotate PDFs', icon: 'pdf',
+    id: 'pdf', name: 'Document Studio', tagline: 'Annotate PDFs and documents', icon: 'pdf',
     color: '#ef4444', soft: 'rgba(239,68,68,.14)', width: 1040, height: 720, mount: PDFApp.mount,
   },
   {
@@ -48,11 +50,19 @@ const APPS = [
     color: '#a855f7', soft: 'rgba(168,85,247,.16)', width: 380, height: 560, mount: CalculatorApp.mount,
   },
   {
+    id: 'maps', name: 'Map Atlas', tagline: 'Offline geography maps', icon: 'globe',
+    color: '#0891b2', soft: 'rgba(8,145,178,.18)', width: 1000, height: 735, mount: MapsApp.mount,
+  },
+  {
+    id: 'recording', name: 'Recording Studio', tagline: 'Screen, camera and microphone', icon: 'camera',
+    color: '#e11d48', soft: 'rgba(225,29,72,.18)', width: 680, height: 705, mount: RecordingApp.mount,
+  },
+  {
     id: 'settings', name: 'Settings', tagline: 'Make it yours', icon: 'settings',
     color: '#64748b', soft: 'rgba(100,116,139,.18)', width: 640, height: 700, mount: SettingsApp.mount,
   },
 ];
-const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'settings'];
+const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'recording', 'settings'];
 
 /* =========================================================
    system
@@ -163,10 +173,12 @@ function renderLaunch() {
     el('button', { class: 'btn primary', onclick: () => wm.open('whiteboard') },
       el('span', { class: 'ic', html: icon('pen') }), el('span', { class: 'lbl', text: 'Open whiteboard' })),
     el('button', { class: 'btn', onclick: () => wm.open('pdf') },
-      el('span', { class: 'ic', html: icon('pdf') }), el('span', { class: 'lbl', text: 'Present a PDF' })),
+      el('span', { class: 'ic', html: icon('pdf') }), el('span', { class: 'lbl', text: 'Open a document' })),
     el('button', { class: 'btn', onclick: () => wm.open('class') },
       el('span', { class: 'ic', html: icon('timer') }), el('span', { class: 'lbl', text: 'Class tools' }))
   );
+  if (!DESKTOP) heroActions.append(el('a', { class: 'btn install-cta', href: './install.html' },
+    el('span', { class: 'ic', html: icon('download') }), 'Offline installer'));
 }
 
 /* =========================================================
