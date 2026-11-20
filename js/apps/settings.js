@@ -79,10 +79,6 @@ export function mount({ root }) {
       oninput: (e) => { s = saveSettings({ teacherName: e.target.value }); window.__sbos.applyGreeting(); },
     });
     group2.append(row('Your name', 'Shown on the home screen and greeting', nameInput));
-    group2.append(row('24-hour clock', 'Use 13:00 instead of 1:00 PM', toggle(s.use24h, (v) => {
-      s = saveSettings({ use24h: v }); window.__sbos.applyClock(); paint();
-    })));
-
     /* pen, tablet & palm (v1.2) */
     const ps = getPenSettings();
     const groupPen = el('div', { class: 'set-group' }, el('h4', { text: 'Pen, tablet & palm · Pen aur palm' }));

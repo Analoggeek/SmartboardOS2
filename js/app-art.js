@@ -8,14 +8,13 @@ const artwork = {
   calculator: `<path d="m24 29 40-12 10 7v46L32 83l-8-7z" fill="url(#side)"/><path d="m24 30 41-13v49L24 79z" fill="url(#face)"/><path d="m30 35 29-9v13l-29 9z" fill="#f2e4ff"/><path d="m32 55 4-1m7-2 4-1m7-2 4-1m-26 15 4-1m7-2 4-1m7-2 4-1m-26 15 4-1m7-2 4-1m7-2 4-1" stroke="#f2e4ff" stroke-width="4" stroke-linecap="round"/>`,
   maps: `<path d="m19 45 20-10 16 6 22-10v31L55 73l-16-7-20 10z" fill="url(#side)"/><path d="m19 43 20-10 16 6 22-10v27L55 67l-16-7-20 10z" fill="url(#face)"/><path d="m27 57 10-11 13 8 16-12" stroke="#d7fff9" stroke-width="2.5" fill="none"/><path d="M50 18a14 14 0 0 0-14 14c0 9 14 24 14 24s15-16 15-25A14 14 0 0 0 50 18Z" fill="#ffd59a" stroke="#ae656a" stroke-width="2"/><circle cx="50" cy="31" r="5" fill="#e76a54"/>`,
   recording: `<path d="m21 37 39-11 14 8v35L32 81l-11-8z" fill="url(#side)"/><path d="m21 37 40-12v38L21 75z" fill="url(#face)"/><path d="m61 43 18-11v31l-18-4z" fill="url(#light)"/><ellipse cx="44" cy="50" rx="12" ry="15" transform="rotate(19 44 50)" fill="#421d58"/><ellipse cx="44" cy="50" rx="8" ry="10" transform="rotate(19 44 50)" fill="#fba9cf"/><ellipse cx="42" cy="47" rx="2.8" ry="4" fill="#fff2f8"/>`,
-  lab: `<path d="M24 70l23-9 25 8-24 12z" fill="url(#side)"/><path d="m28 65 20-8 21 7-21 9z" fill="url(#face)"/><path d="M41 22v20L29 58q-4 9 5 11h29q9-2 5-11L56 41V22" fill="#bdf8ee" fill-opacity=".78" stroke="#d8fff6" stroke-width="2.5"/><path d="M36 54q12-6 25 0l7 9q1 5-8 6H37q-10-1-7-6z" fill="#18b69e"/><path d="M39 22h19" stroke="#e1fff7" stroke-width="5" stroke-linecap="round"/><circle cx="47" cy="58" r="3" fill="#fff" opacity=".8"/><circle cx="54" cy="46" r="2.5" fill="#fff" opacity=".8"/>`,
   lessons: `<path d="m17 42 38-17 22 10v34L40 84 17 71z" fill="url(#side)"/><path d="m17 41 38-16 22 10-37 17z" fill="url(#light)"/><path d="m17 41 23 11v32L17 71z" fill="url(#face)"/><path d="m40 52 37-17v34L40 84z" fill="url(#face)"/><path d="m33 34 23 11v11l8-4V41L43 30z" fill="#f9f4d5"/><path d="m48 65 17-7v8l-17 7z" fill="#fff0cf"/>`,
   settings: `<path d="m51 20 9 5 3 8 9 1 6 11-5 8 2 9-8 10-10-1-7 7-12-2-5-8-9-4-3-13 7-7v-9l9-8 10 3z" transform="translate(5 4)" fill="url(#side)"/><path d="m51 20 9 5 3 8 9 1 6 11-5 8 2 9-8 10-10-1-7 7-12-2-5-8-9-4-3-13 7-7v-9l9-8 10 3z" fill="url(#face)"/><circle cx="49" cy="50" r="14" fill="#334a72"/><circle cx="49" cy="50" r="9" fill="#b7c8e9"/>`,
 };
 const palette = {
   whiteboard: ['#adbfff','#5742dc','#25175d'], pdf:['#ffb6a3','#e14b64','#7a243f'], media:['#89ebff','#267ae3','#1b346c'],
   class:['#ffe09c','#ed8f24','#9c3f16'], notes:['#92f6c6','#28ad6b','#174e49'], calculator:['#e6bbff','#8d47d2','#492b72'],
-  maps:['#91f6de','#24a4a5','#14506f'], recording:['#ffb0db','#dd477a','#5a245e'], lab:['#a3fff1','#29b9aa','#165769'], lessons:['#fff1a3','#d67b25','#743b24'], settings:['#d7e4fc','#738fb8','#334565'],
+  maps:['#91f6de','#24a4a5','#14506f'], recording:['#ffb0db','#dd477a','#5a245e'], lessons:['#fff1a3','#d67b25','#743b24'], settings:['#d7e4fc','#738fb8','#334565'],
 };
 let next = 0;
 export function appArt(id) {

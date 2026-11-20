@@ -1,19 +1,16 @@
 /* SmartBoardOS — system bootstrap */
-import { $, el, toast, fmtClock, relTime } from './utils.js';
+import { $, el, toast } from './utils.js';
 import { appArt } from './app-art.js';
 import { icon, hydrateIcons } from './icons.js';
-import { getSettings, saveSettings, store, idb } from './db.js';
+import { getSettings, saveSettings } from './db.js';
 import { WindowManager } from './wm.js';
-import { initWidgets } from './widgets.js';
 import * as Whiteboard from './apps/whiteboard.js';
-import * as PDFApp from './apps/pdf.js';
 import * as MediaApp from './apps/media.js';
 import * as ClassApp from './apps/class.js';
 import * as NotesApp from './apps/notes.js';
 import * as CalculatorApp from './apps/calculator.js';
 import * as RecordingApp from './apps/recording.js';
 import * as SettingsApp from './apps/settings.js';
-import { capturePhoto } from './camera.js';
 
 const DESKTOP = location.protocol === 'sbos:';
 const VERSION = (DESKTOP && new URLSearchParams(location.search).get('version')) || '1.4.0';
@@ -43,10 +40,6 @@ const APPS = [
     color: '#6366f1', soft: 'rgba(99,102,241,.16)', width: 1120, height: 720, mount: Whiteboard.mount,
   },
   {
-    id: 'pdf', name: 'Document Studio', tagline: 'Annotate PDFs and documents', icon: 'pdf',
-    color: '#ef4444', soft: 'rgba(239,68,68,.14)', width: 1040, height: 720, mount: PDFApp.mount,
-  },
-  {
     id: 'media', name: 'Media', tagline: 'Images on device', icon: 'image',
     color: '#0ea5e9', soft: 'rgba(14,165,233,.15)', width: 920, height: 640, mount: MediaApp.mount,
   },
@@ -67,10 +60,6 @@ const APPS = [
     color: '#0891b2', soft: 'rgba(8,145,178,.18)', width: 1000, height: 735, mount: lazyApp(() => import('./apps/maps.js')),
   },
   {
-    id: 'lab', name: 'Smart Lab', tagline: 'Science and mathematics', icon: 'flask',
-    color: '#14b8a6', soft: 'rgba(20,184,166,.18)', width: 1100, height: 775, mount: lazyApp(() => import('./apps/lab.js')),
-  },
-  {
     id: 'lessons', name: 'Lesson Library', tagline: 'Lesson packs & recovery', icon: 'folder',
     color: '#f59e0b', soft: 'rgba(245,158,11,.16)', width: 1060, height: 760, mount: lazyApp(() => import('./apps/lessons.js')),
   },
@@ -83,11 +72,9 @@ const APPS = [
     color: '#64748b', soft: 'rgba(100,116,139,.18)', width: 640, height: 700, mount: SettingsApp.mount,
   },
 ];
-const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'lab', 'lessons', 'recording', 'settings'];
+const appOrder = APPS.map(app => app.id);
+const defaultPins = ['whiteboard', 'class', 'lessons', 'recording', 'settings'];
 
-/* =========================================================
-   system
-   ========================================================= */
 const wm = new WindowManager($('#window-layer'));
 APPS.forEach((a) => wm.register(a));
 
@@ -103,7 +90,7 @@ function applyTheme() {
   document.documentElement.dataset.controls = s.largeControls ? 'large' : 'normal';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', theme === 'light' ? '#eef1f8' : '#0b1020');
-  $('#btn-theme').innerHTML = `<span class="ic">${icon(theme === 'light' ? 'sun' : 'moon')}</span>`;
+  $('#btn-theme').innerHTML = icon(theme === 'light' ? 'sun' : 'moon');
   window.dispatchEvent(new CustomEvent('sbos:theme'));
 }
 
@@ -127,141 +114,48 @@ function applyGreeting() {
   const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const name = (s.teacherName || '').trim() || 'Teacher';
   $('#hero-greet').textContent = `${part}, ${name}`;
-  $('#tb-greeting').textContent = `${part.split(' ')[1]} · Class in session`;
-  const day = new Date().toLocaleDateString(undefined, { weekday: 'long' });
-  $('#hero-day').textContent = `${day} · SmartBoardOS ready`;
 }
 
-function applyClock() {
-  const s = settings();
-  const now = new Date();
-  const { time, suffix } = fmtClock(now, s.use24h);
-  $('#tb-time').textContent = s.use24h ? time : `${time} ${suffix}`;
-  $('#tb-date').textContent = now.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const appMenu = $('#workspace-menu');
+const appToggle = $('#btn-apps');
+const customize = $('#workspace-custom');
+function closeAppMenu(focus = false) {
+  appMenu.hidden = true;
+  appToggle.setAttribute('aria-expanded', 'false');
+  if (focus) appToggle.focus();
 }
-
-/* =========================================================
-   dock
-   ========================================================= */
-function renderDock() {
-  const dock = $('#dock');
-  dock.innerHTML = '';
-  DOCK_ORDER.forEach((id) => {
-    const app = wm.apps.get(id);
-    if (!app) return;
-    const item = el('button', {
-      class: 'dock-item', 'aria-label': app.name, title: `${app.name} — ${app.tagline}`,
-      onclick: () => {
-        if (wm.isOpen(id) && wm.isMinimized(id)) wm.toggleMinimize(id, false);
-        else if (wm.isOpen(id)) wm.toggleMinimize(id, true);
-        else wm.open(id);
-      },
-    },
-      el('span', { class: 'dock-ico', style: { '--d-color': app.color, '--d-soft': app.soft }, html: appArt(id) }),
-      el('span', { class: 'dock-label', text: app.name })
-    );
-    item.dataset.app = id;
-    dock.append(item);
-  });
-  updateDockState();
+function launch(id, params) { closeAppMenu(); wm.open(id, params); }
+function showHome() {
+  closeAppMenu();
+  wm.windows.forEach(w => wm.toggleMinimize(w.id, true));
 }
-
-function updateDockState() {
-  document.querySelectorAll('.dock-item').forEach((item) => {
-    const id = item.dataset.app;
-    item.classList.toggle('running', wm.isOpen(id));
-    item.classList.toggle('min', wm.isOpen(id) && wm.isMinimized(id));
-  });
+function getPins() {
+  return Array.isArray(settings().appPins) ? settings().appPins.filter((id, i, a) => appOrder.includes(id) && a.indexOf(id) === i) : defaultPins;
 }
-
-/* =========================================================
-   home screen cards
-   ========================================================= */
+function appTile(app, menu = false) {
+  const art = app.id === 'whiteboard' ? el('img', { src: './assets/icons/icon-192.png', alt: '' }) : el('span', { html: appArt(app.id) });
+  return el('button', { class: menu ? 'workspace-tile' : 'workspace-card', type: 'button', 'data-app': app.id, onclick: () => launch(app.id) },
+    el('span', { class: 'workspace-art' }, art), el('span', { class: 'workspace-tile-label' }, el('b', { text: app.name }), !menu && el('small', { text: app.tagline })));
+}
+function renderAppMenu() {
+  const pins = getPins();
+  $('#workspace-grid').replaceChildren(...[...pins, ...appOrder.filter(x => !pins.includes(x))].map(id => appTile(wm.apps.get(id), true)));
+  customize.replaceChildren(el('p', { text: 'Pinned apps appear first. All tools stay available in the grid.' }),
+    el('div', { class: 'workspace-pins' }, ...appOrder.map(id => {
+      const box = el('input', { type: 'checkbox' }); box.checked = pins.includes(id);
+      box.onchange = () => { saveSettings({ appPins: box.checked ? [...pins,id] : pins.filter(x => x !== id) }); renderAppMenu(); customize.querySelector(`[data-pin="${id}"]`)?.focus(); };
+      box.dataset.pin = id;
+      return el('label', {}, box, wm.apps.get(id).name);
+    })), el('label', { class: 'workspace-start' }, 'Open on startup ', el('select', { class: 'field', 'aria-label': 'Open on startup', onchange: e => saveSettings({ startup: e.target.value }) },
+      el('option', { value: 'board', text: 'Whiteboard' }), el('option', { value: 'home', text: 'Home' }))));
+  customize.querySelector('select').value = settings().startup === 'home' ? 'home' : 'board';
+}
 function renderLaunch() {
-  const grid = $('#launch-grid');
-  grid.innerHTML = '';
-  DOCK_ORDER.forEach((id) => {
-    const app = wm.apps.get(id);
-    const card = el('button', { class: 'launch-card', style: { '--card-color': app.color, '--card-soft': app.soft }, onclick: () => wm.open(id) },
-      el('span', { class: 'launch-icon', html: appArt(id) }),
-      el('span', { class: 'launch-name', text: app.name }),
-      el('span', { class: 'launch-desc', text: app.tagline })
-    );
-    grid.append(card);
-  });
-
-  const heroActions = $('#hero-actions');
-  heroActions.innerHTML = '';
-  heroActions.append(
-    el('button', { class: 'btn primary', onclick: () => wm.open('whiteboard') },
-      el('span', { class: 'ic', html: icon('pen') }), el('span', { class: 'lbl', text: 'Open whiteboard' })),
-    el('button', { class: 'btn', onclick: () => wm.open('pdf') },
-      el('span', { class: 'ic', html: icon('pdf') }), el('span', { class: 'lbl', text: 'Open a document' })),
-    el('button', { class: 'btn', onclick: () => wm.open('class') },
-      el('span', { class: 'ic', html: icon('timer') }), el('span', { class: 'lbl', text: 'Class tools' }))
-  );
-  if (!DESKTOP) heroActions.append(el('a', { class: 'btn install-cta', href: './install.html' },
-    el('span', { class: 'ic', html: icon('download') }), 'Offline installer'));
-}
-
-/* =========================================================
-   stats
-   ========================================================= */
-const TOOLBOX = [
-  { icon: 'pen', label: 'Pen', run: () => wm.open('whiteboard', { tool: 'pen' }) },
-  { icon: 'highlighter', label: 'Highlight', run: () => wm.open('whiteboard', { tool: 'highlighter' }) },
-  { icon: 'eraser', label: 'Eraser', run: () => wm.open('whiteboard', { tool: 'eraser' }) },
-  { icon: 'zap', label: 'Laser', run: () => wm.open('whiteboard', { tool: 'laser' }) },
-  { icon: 'smile', label: 'Stickers', run: () => wm.open('whiteboard', { picker: true }) },
-  { icon: 'camera', label: 'Camera', run: async () => {
-      const shot = await capturePhoto({ title: 'Camera → board' });
-      if (shot) wm.open('whiteboard', { image: shot, title: 'Camera photo' });
-    } },
-  { icon: 'file-plus', label: 'New page', run: () => wm.open('whiteboard', { addPage: true }) },
-  { icon: 'cursor', label: 'Select', run: () => wm.open('whiteboard', { tool: 'select' }) },
-];
-
-function renderToolbox() {
-  const host = document.getElementById('toolbox-grid');
-  if (!host) return;
-  host.innerHTML = '';
-  TOOLBOX.forEach((item) => {
-    host.append(el('button', {
-      class: 'toolbox-btn', title: item.label, onclick: item.run,
-    }, el('span', { html: icon(item.icon) }), el('span', { text: item.label })));
-  });
-}
-
-function renderActivity() {
-  const card = $('#activity-card');
-  if (!card) return;
-  const board = store.get('board-mirror', null);
-  const saved = board?.savedAt ? relTime(board.savedAt) : 'not yet';
-  const pages = board?.pages?.length ?? 0;
-  const objs = board?.pages?.reduce((a, p) => a + (p.objects?.length || 0), 0) ?? 0;
-  card.innerHTML = '';
-  card.append(
-    el('div', { class: 'tips-head' }, el('span', { class: 'ic', html: icon('layers') }), 'Class snapshot'),
-    el('div', { class: 'activity-row' }, el('span', { text: 'Board pages' }), el('b', { text: String(pages) })),
-    el('div', { class: 'activity-row' }, el('span', { text: 'Board objects' }), el('b', { text: String(objs) })),
-    el('div', { class: 'activity-row' }, el('span', { text: 'Last autosave' }), el('b', { text: saved })),
-    el('div', { class: 'activity-actions' },
-      el('button', { class: 'mini-btn', text: 'Export board PDF', onclick: () => exportBoardPDF() })
-    )
-  );
-}
-
-async function updateStats() {
-  try {
-    const board = await idb.get('boards', 'current');
-    $('#stat-pages').textContent = board?.pages?.length ?? 0;
-    const media = await idb.all('media');
-    $('#stat-media').textContent = media.length;
-  } catch { /* noop */ }
-  const notes = store.get('notes', []);
-  $('#stat-notes').textContent = notes.length;
-  renderActivity();
-  renderToolbox();
+  $('#launch-grid').replaceChildren(...APPS.map(app => appTile(app)));
+  $('#hero-actions').replaceChildren(
+    el('button', { class: 'btn primary', text: 'Open whiteboard', onclick: () => launch('whiteboard') }),
+    el('button', { class: 'btn', text: 'Import PDF / PPT', onclick: () => launch('whiteboard', { document: true }) }),
+    ...(!DESKTOP ? [el('a', { class: 'btn install-cta', href: './install.html', text: 'Offline installer' })] : []));
 }
 
 /* =========================================================
@@ -285,6 +179,7 @@ function paletteItems() {
       icon: 'pen', title: 'New whiteboard page', sub: 'Add a fresh page to the board', hint: 'Action',
       run: () => { wm.open('whiteboard'); setTimeout(() => wm.windows.get('whiteboard')?.instance?.addPage?.(), 300); },
     },
+    { icon: 'pdf', title: 'Import PDF / PPT', sub: 'Open a complete document in the whiteboard', hint: 'Action', run: () => launch('whiteboard', { document: true }) },
     { icon: 'download', title: 'Export board as PDF', sub: 'Download every page as one PDF', hint: 'Action', run: () => exportBoardPDF() },
     { icon: 'download', title: 'Export board as PNG', sub: 'Save the current page as an image', hint: 'Action', run: () => exportBoardPNG() },
     { icon: 'note', title: 'Quick note', sub: 'Jot something down instantly', hint: 'Action', run: () => wm.open('notes', { new: true }) },
@@ -379,14 +274,14 @@ async function exportBoardPNG() {
 /* =========================================================
    fullscreen / install
    ========================================================= */
-function toggleFullscreen() {
-  const board = wm.windows.get('whiteboard');
-  if (board?.instance?.togglePresentation) {
-    wm.open('whiteboard');
-    board.instance.togglePresentation();
-  } else {
-    wm.open('whiteboard', { fullscreen: true });
-  }
+async function toggleFullscreen() {
+  closeAppMenu();
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if (window.smartboardWindow?.toggleFullscreen) await window.smartboardWindow.toggleFullscreen();
+    else if (document.fullscreenEnabled && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    else toast('The board already fills this viewport. Your browser controls screen fullscreen.', 'info');
+  } catch { toast('Screen fullscreen is unavailable here. The board still fills this viewport.', 'info'); }
 }
 
 let installPrompt = null;
@@ -411,17 +306,16 @@ function installApp() {
 function onGlobalKey(e) {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   const mod = e.ctrlKey || e.metaKey;
-  if (document.querySelector('.wb-presenting') && (mod || e.key.toLowerCase() !== 'f')) return;
+  if (e.defaultPrevented) return;
+  if (e.key === 'Escape' && !appMenu.hidden) { e.preventDefault(); closeAppMenu(true); return; }
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.backdrop.hidden ? openPalette() : closePalette(); return; }
   if (e.key === 'Escape' && !palette.backdrop.hidden) { closePalette(); return; }
   if (typing) return;
   if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); wm.open('whiteboard'); return; }
-  if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); wm.open('pdf'); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); launch('whiteboard', { document: true }); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); wm.open('class'); return; }
   if (e.key.toLowerCase() === 'f' && !mod && !e.repeat) {
-    const present = document.querySelector('.win.focused:not(.min) .wb-present');
-    if (present) present.click();
-    else toggleFullscreen();
+    e.preventDefault(); toggleFullscreen();
   }
 }
 
@@ -437,37 +331,25 @@ function setBoot(pct, msg) {
 
 async function boot() {
   hydrateIcons(document);
-  applyTheme(); applyMotion(); applyWallpaper(); applyGreeting(); applyClock();
-  setBoot(18, 'Loading display driver…');
-
-  renderDock(); renderLaunch();
-  const widgets = initWidgets($('#widgets'), { onOpenApp: (id) => wm.open(id) });
-  $('#btn-widget-add').addEventListener('click', () => widgets.openPicker());
-
-  wm.onChange(() => updateDockState());
-  setBoot(46, 'Waking up the whiteboard…');
-  await new Promise((r) => setTimeout(r, 260));
-
-  setBoot(68, 'Restoring your board…');
-  updateStats();
-
-  // top bar wiring
-  $('#btn-cmd').addEventListener('click', openPalette);
-  $('#btn-theme').addEventListener('click', () => {
-    const s = settings();
-    saveSettings({ theme: s.theme === 'light' ? 'dark' : 'light' });
-    applyTheme();
-  });
-  $('#btn-fullscreen').addEventListener('click', toggleFullscreen);
-  $('#btn-settings').addEventListener('click', () => wm.open('settings'));
-  $('#btn-home').addEventListener('click', () => {
-    wm.windows.forEach((w) => wm.toggleMinimize(w.id, true));
-    toast('Home', 'info', 900);
-  });
-  $('#btn-install').addEventListener('click', installApp);
-
-  setInterval(applyClock, 1000);
-  setInterval(updateStats, 20000);
+  applyTheme(); applyMotion(); applyWallpaper(); applyGreeting();
+  renderLaunch(); renderAppMenu();
+  appToggle.onclick = () => {
+    if (!appMenu.hidden) { closeAppMenu(); return; }
+    appMenu.hidden = false;
+    appToggle.setAttribute('aria-expanded','true');
+    appMenu.querySelector('.workspace-tile')?.focus({ preventScroll: true });
+  };
+  $('#btn-customize').onclick = () => {
+    customize.hidden = !customize.hidden;
+    $('#btn-customize').setAttribute('aria-expanded', String(!customize.hidden));
+    if (!customize.hidden) customize.querySelector('input')?.focus();
+  };
+  $('#btn-cmd').onclick = () => { closeAppMenu(); openPalette(); };
+  $('#btn-theme').onclick = () => { saveSettings({ theme: settings().theme === 'light' ? 'dark' : 'light' }); applyTheme(); };
+  $('#btn-fullscreen').onclick = toggleFullscreen;
+  $('#btn-home').onclick = showHome;
+  $('#btn-install').onclick = installApp;
+  document.addEventListener('pointerdown', e => { if (!appMenu.hidden && !appMenu.contains(e.target) && !appToggle.contains(e.target)) closeAppMenu(); });
   window.addEventListener('keydown', onGlobalKey);
   if (!DESKTOP) window.addEventListener('online', () => toast('Back online', 'ok', 1600));
   if (!DESKTOP) window.addEventListener('offline', () => toast('Offline — the app still works', 'info', 2200));
@@ -494,30 +376,16 @@ async function boot() {
     $('#btn-install').hidden = true;
   });
 
-  setBoot(86, 'Almost ready…');
-  await new Promise((r) => setTimeout(r, 320));
-  setBoot(100, 'Welcome');
-
-  setTimeout(() => {
-    $('#boot').classList.add('hide');
-    const os = $('#os');
-    os.classList.add('ready');
-    os.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('booted');
-  }, 300);
-
-  // deep link (?app=whiteboard) or first run → open the board
-  const s = settings();
   const urlApp = new URLSearchParams(location.search).get('app');
-  if (urlApp && wm.apps.has(urlApp)) {
-    setTimeout(() => wm.open(urlApp), 700);
-  } else if (s.firstRun) {
-    setTimeout(() => {
-      wm.open('whiteboard');
-      toast('Tip: Ctrl/⌘ + K opens every app instantly', 'info', 5200);
-    }, 900);
-  }
-  if (s.firstRun) saveSettings({ firstRun: false });
+  if (urlApp === 'pdf') wm.open('whiteboard', { document: true });
+  else if (urlApp && wm.apps.has(urlApp)) wm.open(urlApp);
+  else if (settings().startup !== 'home') wm.open('whiteboard');
+  setBoot(100, 'Welcome');
+  requestAnimationFrame(() => {
+    $('#boot').classList.add('hide');
+    const os = $('#os'); os.classList.add('ready'); os.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('booted');
+  });
 }
 
 /* public API for apps */
@@ -528,7 +396,8 @@ window.__sbos = {
   applyWallpaper,
   applyMotion,
   applyGreeting,
-  applyClock,
+  applyClock: () => {},
+  toggleFullscreen,
   desktop: DESKTOP,
   saveWork: async () => {
     const results = await Promise.all([...wm.windows.values()].map(({ instance }) => instance?.save?.()));

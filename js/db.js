@@ -134,7 +134,7 @@ export const DEFAULT_SETTINGS = {
   use24h: false,
   teacherName: 'Teacher',
   wallpaper: 'aurora',
-  openWidgets: ['clock', 'timer', 'dice', 'note'],
+  startup: 'board',
   firstRun: true,
 };
 

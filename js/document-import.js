@@ -1,10 +1,10 @@
 import { unzipSync, strFromU8 } from '../vendor/fflate/fflate.js';
 
-export const ACCEPT = '.pdf,.pptx,.docx,.txt,.md,application/pdf';
+export const ACCEPT = '.pdf,.ppt,.pptx,.docx,.txt,.md,application/pdf';
 const MAX_SOURCE = 50 * 1024 * 1024;
 const MAX_PART = 2 * 1024 * 1024;
 const MAX_PARTS = 150;
-export const isDocument = file => !!file && (/\.(pdf|pptx|docx|txt|md)$/i.test(file.name) || file.type === 'application/pdf');
+export const isDocument = file => !!file && (/\.(pdf|ppt|pptx|docx|txt|md)$/i.test(file.name) || file.type === 'application/pdf');
 const names = (root, local) => [...root.getElementsByTagNameNS('*', local)];
 
 function paragraphs(part) {
@@ -15,7 +15,7 @@ function paragraphs(part) {
 
 function extract(bytes, extension) {
   if (extension === 'txt' || extension === 'md') return [strFromU8(bytes).slice(0, 120000).split(/\r?\n/)];
-  const pattern = extension === 'pptx' ? /^ppt\/slides\/slide\d+\.xml$/ : /^word\/document\.xml$/;
+  const pattern = /^word\/document\.xml$/;
   let count = 0, total = 0;
   const parts = unzipSync(bytes, { filter: info => {
     if (!pattern.test(info.name)) return false;
@@ -27,19 +27,21 @@ function extract(bytes, extension) {
   return pages;
 }
 
-export async function toPdf(file) {
+export async function toPdf(file, progress) {
   if (!isDocument(file)) throw new Error('Use PDF, PPTX, DOCX, TXT or Markdown.');
   if (file.size > MAX_SOURCE) throw new Error('Use a file under 50 MB.');
   const extension = file.name.split('.').pop().toLowerCase();
   const buffer = await file.arrayBuffer();
   if (extension === 'pdf' || file.type === 'application/pdf') return { buffer, imported: false };
-  const pages = extract(new Uint8Array(buffer), extension);
-  const slide = extension === 'pptx';
-  const pdf = new window.jspdf.jsPDF({ unit: 'pt', format: slide ? [960,540] : 'a4', orientation: slide ? 'landscape' : 'portrait', compress: true });
-  if (crypto.subtle) {
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
-    pdf.setFileId([...digest.slice(0, 16)].map(b => b.toString(16).padStart(2, '0')).join(''));
+  if (extension === 'ppt') throw Error('This is the older .ppt format. Save it as .pptx or PDF in PowerPoint or LibreOffice, then import it.');
+  const fileId = crypto.subtle ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)).slice(0,16)].map(b=>b.toString(16).padStart(2,'0')).join('') : undefined;
+  if (extension === 'pptx') {
+    const { pptxToPdf } = await import('./pptx-import.js');
+    return pptxToPdf(new Uint8Array(buffer), { progress, fileId });
   }
+  const pages = extract(new Uint8Array(buffer), extension);
+  const pdf = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4', compress: true });
+  if (fileId) pdf.setFileId(fileId);
   const width = pdf.internal.pageSize.getWidth(), height = pdf.internal.pageSize.getHeight();
   const canvas = document.createElement('canvas');
   canvas.width = width * 1.5; canvas.height = height * 1.5;
@@ -49,7 +51,7 @@ export async function toPdf(file) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0,0,width,height);
     ctx.fillStyle = '#152a45'; ctx.font = 'bold 16px system-ui, sans-serif';
     ctx.fillText(file.name.slice(0,75), 34, 33);
-    ctx.font = `${slide ? 23 : 17}px system-ui, sans-serif`;
+    ctx.font = `17px system-ui, sans-serif`;
     line = 72;
   }
   function finish() {
@@ -59,7 +61,7 @@ export async function toPdf(file) {
   }
   function add(text) {
     if (line > height-35) { finish(); start(); }
-    ctx.fillText(text, 34, line); line += slide ? 34 : 26;
+    ctx.fillText(text, 34, line); line += 26;
   }
   for (const content of pages) {
     start();
@@ -78,5 +80,5 @@ export async function toPdf(file) {
     finish();
     await new Promise(resolve => setTimeout(resolve, 0));
   }
-  return { buffer: pdf.output('arraybuffer'), imported: true };
+  return { buffer: pdf.output('arraybuffer'), imported: 'text' };
 }

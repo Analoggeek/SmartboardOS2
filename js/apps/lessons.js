@@ -41,7 +41,7 @@ export function mount({ root, api }) {
   function updateFiles() {
     attachments.replaceChildren(...files.map((f,i) => el('div', {}, el('span', { text: f.name }),
       button(isDocument(f) ? 'Open' : 'Download', () => {
-        if (isDocument(f)) api.open('pdf', { file: new File([f.blob], f.name) });
+        if (isDocument(f)) api.open('whiteboard', { file: new File([f.blob], f.name) });
         else downloadBlob(f.blob,f.name);
       }, 'mini-btn'), button('Remove', () => { if (!busy) { files.splice(i, 1); updateFiles(); } }, 'mini-btn'))));
   }

@@ -6,8 +6,8 @@ import { isDocument } from '../document-import.js';
 import { icon, iconEl } from '../icons.js';
 import { idb, store } from '../db.js';
 import { createPenTracker, getPenSettings, savePenSettings } from '../pen.js';
+import { classroomWidget } from '../class-widget.js';
 import { capturePhoto } from '../camera.js';
-import { boardBroadcast } from '../board-broadcast.js';
 import { checkpoint } from '../board-checkpoints.js';
 import { paintBoardObject } from '../board-render.js';
 import { EMOJI_SVG } from '../emoji-data.js';
@@ -204,49 +204,8 @@ export async function mount({ root, params = {}, api, annotation }) {
   }
   stage.addEventListener('pointerdown', (e) => { if (!bgMenu.contains(e.target)) toggleBackgrounds(false); });
   const targetWindow = root.closest('.win');
-  let immersive = false;
-  let presentationPending = false;
-  let presentationActive = false;
-  const presentBtn = el('button', { class: 'tool-btn wb-present', title: 'Fullscreen presentation (F)', 'aria-pressed': 'false',
-    html: `${icon('fullscreen')}<span>Fullscreen</span>`, onclick: () => togglePresentation() });
-  const toolsToggle = el('button', { class: 'btn', text: 'Tools', 'aria-expanded': 'false', onclick: () => showPresentationTools(!toolbar.classList.contains('wb-tools-open')) });
-  const controls = el('div', { class: 'wb-presentation-controls', hidden: true }, toolsToggle,
-    el('button', { class: 'btn', text: 'Exit fullscreen', onclick: () => togglePresentation() }));
-  function showPresentationTools(show) {
-    toolbar.classList.toggle('wb-tools-open', show);
-    toolsToggle.setAttribute('aria-expanded', String(show));
-    if (!show) { toggleBackgrounds(false); toggleColors(false); exportMenu.hidden = true; }
-  }
-  function presentationChanged() {
-    const active = immersive || document.fullscreenElement === targetWindow;
-    if (active !== presentationActive) {
-      targetWindow?.classList.toggle('wb-presenting', active);
-      controls.hidden = !active;
-      presentationActive = active;
-      showPresentationTools(false);
-      if (active) toolsToggle.focus({ preventScroll: true });
-      else if (root.isConnected) presentBtn.focus({ preventScroll: true });
-    }
-    presentBtn.setAttribute('aria-pressed', String(active));
-    presentBtn.querySelector('span').textContent = active ? 'Exit fullscreen' : 'Fullscreen';
-    requestAnimationFrame(resizeCanvas);
-    document.dispatchEvent(new Event('sbos:presentation'));
-  }
-  function setImmersive(active) {
-    immersive = active;
-    presentationChanged();
-  }
-  async function togglePresentation() {
-    if (!targetWindow || presentationPending) return;
-    if (immersive) { setImmersive(false); return; }
-    if (document.fullscreenElement === targetWindow) { await document.exitFullscreen().catch(() => {}); return; }
-    if (!document.fullscreenEnabled || !targetWindow.requestFullscreen || document.fullscreenElement) { setImmersive(true); return; }
-    presentationPending = true;
-    try { await targetWindow.requestFullscreen(); }
-    catch { if (root.isConnected) setImmersive(true); }
-    finally { presentationPending = false; }
-  }
-  document.addEventListener('fullscreenchange', presentationChanged);
+  if (!annotation) targetWindow?.classList.add('board-workspace');
+  const presentBtn = el('button', { class: 'tool-btn wb-present', title: 'Toggle screen fullscreen (F)', 'aria-label': 'Toggle screen fullscreen', html: icon('fullscreen'), onclick: () => window.__sbos.toggleFullscreen() });
 
   const imgBtn = el('button', { class: 'tool-btn', title: 'Insert image', html: icon('image'), onclick: insertImage });
   const emojiBtn = el('button', { class: 'tool-btn', title: 'Emoji & stickers', html: icon('smile') });
@@ -258,16 +217,13 @@ export async function mount({ root, params = {}, api, annotation }) {
   const saveBtn = el('button', { class: 'tool-btn', title: 'Save board', html: icon('save'), onclick: () => { saveSession(true); } });
   const exportBtn = el('button', { class: 'tool-btn', title: 'Export & save', html: `${icon('download')}<span>Export</span>` });
 
-  const studentBtn = el('button', { class: 'tool-btn', text: 'Student display', 'aria-pressed': 'false', onclick: () => broadcast.toggle() });
-  const broadcast = boardBroadcast(canvas, (state) => {
-    studentBtn.setAttribute('aria-pressed', String(state === 'on' || state === 'starting'));
-    studentBtn.textContent = state === 'on' || state === 'starting' ? 'Stop student display' : 'Student display';
-    if (state === 'on') toast('Student display connected. Move it to the projector or second screen.', 'ok', 5000);
-    if (state === 'blocked') toast('Student display did not open. Allow this site to open a popup and retry.', 'warn');
-    if (state === 'unavailable') toast('Second-window display is unavailable in this browser.', 'warn');
-  });
+  const importBtn = !annotation && el('button', { class: 'tool-btn wb-import', title: 'Import a complete PDF or PowerPoint', html: `${icon('folder')}<span>Import PDF / PPT</span>`, onclick: () => openDocument() });
+  const recordBtn = !annotation && el('button', { class: 'tool-btn', title: 'Camera and recording layout', html: `${icon('camera')}<span>Camera</span>`, onclick: () => api.open('recording') });
+  const mini = annotation ? null : classroomWidget(() => api.open('class'));
+  const classBtn = mini && el('button', { class: 'tool-btn', title: 'Toggle classroom tools widget', html: `${icon('timer')}<span>Class tools</span>`, 'aria-expanded': 'false', onclick: () => { mini.toggle(); classBtn.setAttribute('aria-expanded', String(!mini.node.hidden)); } });
+
   const toolbar = el('div', { class: 'app-toolbar wb-toolbar', style: { position: 'relative' } },
-    presentBtn, colorBtn, annotation ? null : bgBtn, sizeInput,
+    importBtn, classBtn, recordBtn, presentBtn, colorBtn, annotation ? null : bgBtn, sizeInput,
     el('div', { class: 'sep' }), toolGroup,
     el('div', { class: 'sep' }),
     eraseMode, undoBtn, redoBtn, clearBtn,
@@ -276,11 +232,36 @@ export async function mount({ root, params = {}, api, annotation }) {
     el('div', { class: 'sep' }),
     penBtn, annotation ? null : floatBtn,
     el('div', { class: 'sep' }),
-    imgBtn, camBtn, emojiBtn, exportBtn, studentBtn
+    imgBtn, camBtn, emojiBtn, exportBtn
   );
 
-  const app = el('div', { class: 'app wb-app' }, toolbar, stage, controls);
+  const app = el('div', { class: 'app wb-app' }, toolbar, stage);
   root.append(app);
+  if (mini) stage.append(mini.node);
+  let embedded, docEpoch = 0;
+  const documentHost = annotation ? null : el('div', { class: 'board-document-host', hidden: true });
+  if (documentHost) root.append(documentHost);
+  async function openDocument(file) {
+    if (!documentHost) return;
+    if (embedded) { embedded.onParams?.({ file }); return; }
+    const epoch = ++docEpoch;
+    app.hidden = true; documentHost.hidden = false;
+    documentHost.replaceChildren(el('div', { class: 'settings', role: 'status', text: 'Opening document tools…' }));
+    try {
+      const { mount } = await import('./pdf.js');
+      if (epoch !== docEpoch || !root.isConnected) return;
+      documentHost.replaceChildren();
+      embedded = mount({ root: documentHost, params: { file }, api: { ...api, setTitle: () => {}, close: closeDocument } });
+    } catch (error) { console.warn(error); closeDocument(); toast('Could not open document tools.', 'err'); }
+  }
+  async function closeDocument() {
+    ++docEpoch;
+    const instance = embedded; embedded = null;
+    documentHost.hidden = true;
+    await instance?.onClose?.();
+    if (embedded || !documentHost.hidden) return;
+    documentHost.replaceChildren(); app.hidden = false; requestAnimationFrame(resizeCanvas);
+  }
 
   /* ---------------- emoji picker ---------------- */
   const emojiHint = el('div', { class: 'wb-emoji-hint', hidden: true }, el('span', { text: 'Tap the board to place the sticker' }), el('button', { class: 'mini-btn', text: 'Cancel' }));
@@ -695,7 +676,6 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (live?.type && live.tool !== 'laser') drawObject(ctx,live);
     if (selection && objects.includes(selection)) drawSelection(ctx);
     for (const l of laser) drawObject(ctx,l);
-    broadcast.update();
     const text = `${Math.round(view.scale * 100)}%`;
     if (zoomLabel.textContent !== text) zoomLabel.textContent = text;
   }
@@ -1178,7 +1158,7 @@ export async function mount({ root, params = {}, api, annotation }) {
       const src = await fileToDataURL(file);
       addImageObject(src);
     } else if (isDocument(file)) {
-      api.open('pdf', { file });
+      openDocument(file);
     } else {
       toast('Drop an image, PDF, PPTX, DOCX, TXT or Markdown file', 'warn');
     }
@@ -1361,7 +1341,7 @@ export async function mount({ root, params = {}, api, annotation }) {
     pageOverview = backdrop;
     function closeModal() { backdrop.remove(); pageOverview = null; }
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
-    (presentationActive ? targetWindow : document.body).append(backdrop);
+    document.body.append(backdrop);
   }
 
   function movePage(i, delta) {
@@ -1553,7 +1533,6 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (e.key === ' ') { spaceHeld = true; canvas.style.cursor = 'grab'; }
     const map = { s: 'select', p: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', o: 'ellipse', t: 'text', z: 'laser', v: 'pan' };
     const k = e.key.toLowerCase();
-    if (e.key === 'Escape' && immersive) { setImmersive(false); return; }
     if (e.key === 'Escape' && pendingEmoji) { pendingEmoji = null; updateEmojiHint(); return; }
     if (e.key === 'Escape' && selection) { selection = null; updateButtons(); mark(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); deleteSelection(); return; }
@@ -1573,7 +1552,7 @@ export async function mount({ root, params = {}, api, annotation }) {
   };
   window.addEventListener('sbos:theme', onTheme);
 
-  const isVisible = () => document.body.contains(root) && !!root.getClientRects().length && api.head.closest('.win')?.classList.contains('focused');
+  const isVisible = () => document.body.contains(root) && !!stage.getClientRects().length && api.head.closest('.win')?.classList.contains('focused');
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', onKeyUp);
 
@@ -1618,23 +1597,19 @@ export async function mount({ root, params = {}, api, annotation }) {
     if (p.tool && TOOLS.some((t) => t.id === p.tool)) setTool(p.tool);
     if (p.picker) { buildEmojiPop(); emojiPop.hidden = false; }
     if (p.addPage) addPage();
-    if (p.fullscreen) togglePresentation();
+    if (p.file || p.document) openDocument(p.file);
   };
   handleParams(params);
 
   return {
-    togglePresentation,
-    save: () => saveSession(false, true),
+    save: async () => { const saved = await embedded?.save?.(); return saved === false ? false : saveSession(false, true); },
     onParams: handleParams,
     onResize: () => resizeCanvas(),
     onClose: () => {
       const saved = saveSession(false, true);
-      broadcast.stop();
+      docEpoch++; embedded?.onClose?.(); mini?.close();
       pageOverview?.remove();
       ro.disconnect();
-      document.removeEventListener('fullscreenchange', presentationChanged);
-      if (immersive) setImmersive(false);
-      if (document.fullscreenElement === targetWindow) document.exitFullscreen().catch(() => {});
       if (raf) cancelAnimationFrame(raf);
       if (eraserFrame) cancelAnimationFrame(eraserFrame);
       window.removeEventListener('keydown', onKey);

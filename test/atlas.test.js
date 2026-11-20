@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import india from '../js/map-india.js';
 import countries from '../js/map-data.js';
-import { diagrams, subjects, levels, diagramSVG } from '../js/lab-diagrams.js';
 import { appArt } from '../js/app-art.js';
 
 const contains = ([x, y], ring) => {
@@ -25,26 +24,8 @@ test('India detail includes the mainland and Andamans, excludes open sea, and in
   }
 });
 
-test('Smart Lab covers every subject and level and can export a recall-practice version of each diagram', () => {
-  assert.equal(diagrams.length, 36);
-  assert.equal(new Set(diagrams.map(({ id }) => id)).size, diagrams.length);
-  for (const subject of subjects) for (const level of levels) {
-    assert.equal(diagrams.filter(d => d.subject === subject && d.level === level).length, 3);
-  }
-  for (const d of diagrams) {
-    const svg = diagramSVG(d);
-    const quiz = diagramSVG(d, { labelled: false });
-    assert(svg.startsWith('<svg xmlns='));
-    assert(svg.includes('viewBox="0 0 900 600"'));
-    assert((svg.match(/<text /g) || []).length > 5);
-    assert.equal((quiz.match(/<text /g) || []).length, 3);
-    assert.equal((quiz.match(/<path /g) || []).length, (svg.match(/<path /g) || []).length);
-    assert(d.summary.length > 50 && /[?.]$/.test(d.prompt));
-  }
-});
-
-test('dimensional icons have independent gradient IDs when repeated in dock and launcher', () => {
-  const svg = appArt('lab') + appArt('maps') + appArt('lab');
+test('dimensional icons have independent gradient IDs when repeated in home and app grid', () => {
+  const svg = appArt('maps') + appArt('maps') + appArt('maps');
   const ids = [...svg.matchAll(/id="(app-art-[^"]+)"/g)].map(m => m[1]);
   assert.equal(new Set(ids).size, 9);
   for (const [, key] of svg.matchAll(/url\(#([^)]+)\)/g)) assert(ids.includes(key));

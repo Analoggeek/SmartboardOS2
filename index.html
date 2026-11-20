@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>SmartBoardOS — The Teacher's Interactive Board</title>
-<meta name="description" content="An offline classroom workspace with a pressure-sensitive whiteboard, PDF Studio, lesson notes and class tools." />
+<meta name="description" content="An offline classroom workspace with a pressure-sensitive whiteboard, in-board documents, lesson notes and class tools." />
 <meta name="theme-color" content="#0b1020" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -34,102 +34,37 @@
 <!-- ───────────────────────── OS shell ───────────────────────── -->
 <div id="os" class="os" aria-hidden="true">
 
-  <header id="topbar" class="topbar">
-    <div class="tb-left">
-      <button class="tb-logo" id="btn-home" title="Home" aria-label="Home">
-        <img src="./assets/icons/icon-192.png" alt="" width="26" height="26" />
-      </button>
-      <div class="tb-brand">SmartBoard<span>OS</span></div>
-      <div class="tb-chip" id="tb-greeting">Welcome</div>
-    </div>
-
-    <div class="tb-center">
-      <button class="tb-search" id="btn-cmd" title="Search (Ctrl/⌘ + K)">
-        <span class="tb-search-ico" id="tb-search-ico" data-icon="search"></span>
-        <span class="tb-search-label">Search apps &amp; actions</span>
-        <kbd>Ctrl K</kbd>
-      </button>
-    </div>
-
-    <div class="tb-right">
-      <div class="tb-clock" id="tb-clock" title="Session clock">
-        <div class="tb-time" id="tb-time">--:--</div>
-        <div class="tb-date" id="tb-date">—</div>
-      </div>
-      <button class="icon-btn" id="btn-install" title="Install app" hidden>
-        <span class="ic" data-icon="download"></span>
-      </button>
-      <button class="icon-btn" id="btn-theme" title="Toggle theme">
-        <span class="ic" data-icon="moon"></span>
-      </button>
-      <button class="icon-btn" id="btn-fullscreen" title="Fullscreen (F)">
-        <span class="ic" data-icon="fullscreen"></span>
-      </button>
-      <button class="icon-btn" id="btn-settings" title="Settings">
-        <span class="ic" data-icon="settings"></span>
-      </button>
-    </div>
-  </header>
-
   <main id="desktop" class="desktop">
-    <div class="desk-bg" aria-hidden="true">
-      <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
-      <span class="grid-fade"></span>
-    </div>
-
-    <div class="desk-scroll">
-      <section class="hero">
-        <div class="hero-main">
-          <p class="hero-eyebrow"><span class="dot-live"></span> <span id="hero-day">Ready</span></p>
-          <h1 class="hero-title" id="hero-greet">Good morning, Teacher</h1>
-          <p class="hero-sub">Everything you need for today's class — board, PDFs, timers and student tools.</p>
-          <div class="hero-actions" id="hero-actions"></div>
-        </div>
-        <div class="hero-summary">
-          <p class="summary-label"><span class="ic" data-icon="layers"></span> Your local workspace</p>
-          <div class="hero-stats">
-            <div class="stat"><b id="stat-pages">0</b><span>Board pages</span></div>
-            <div class="stat"><b id="stat-notes">0</b><span>Notes</span></div>
-            <div class="stat"><b id="stat-media">0</b><span>Media files</span></div>
-          </div>
-        </div>
+    <div class="desk-scroll workspace-home">
+      <section class="workspace-welcome">
+        <div><p class="workspace-kicker" id="hero-day">OFFLINE TEACHING WORKSPACE</p>
+        <h1 id="hero-greet">Welcome, Teacher</h1>
+        <p>Open your board, import a lesson, or choose a classroom tool.</p></div>
+        <div class="hero-actions" id="hero-actions"></div>
       </section>
-
-      <section class="desk-grid">
-        <div class="desk-col-launch">
-          <h2 class="section-title">Quick launch</h2>
-          <div class="launch-grid" id="launch-grid"></div>
-          <div class="mini-grid">
-          <div class="tips-card toolbox-card">
-            <div class="tips-head"><span class="ic" data-icon="pen"></span> Teaching toolbox</div>
-            <div class="toolbox-grid" id="toolbox-grid"></div>
-            <p class="toolbox-note">One tap → the tool is live on the board. Camera asks for permission only when you press it.</p>
-          </div>
-          <div class="tips-card">
-            <div class="tips-head"><span class="ic" data-icon="sparkles"></span> Teacher shortcuts</div>
-            <ul class="tips-list">
-              <li><kbd>Ctrl</kbd><kbd>K</kbd><span>Search apps & actions</span></li>
-              <li><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>W</kbd><span>Whiteboard instantly</span></li>
-              <li><kbd>P</kbd><span>Pen tool</span> <kbd>E</kbd><span>Eraser</span> <kbd>T</kbd><span>Text</span></li>
-              <li><kbd>Ctrl</kbd><kbd>Z</kbd><span>Undo</span> <kbd>Ctrl</kbd><kbd>S</kbd><span>Save board</span></li>
-              <li><kbd>F</kbd><span>Fullscreen for class</span></li>
-            </ul>
-          </div>
-          <div class="tips-card" id="activity-card"></div>
-          </div>
-        </div>
-        <div class="desk-col-widgets">
-          <h2 class="section-title">Widgets <button class="link-btn" id="btn-widget-add" title="Add widget">+ Add</button></h2>
-          <div class="widgets" id="widgets"></div>
-        </div>
+      <section class="workspace-library" aria-label="Classroom apps">
+        <h2>Classroom apps</h2><div class="launch-grid" id="launch-grid"></div>
       </section>
     </div>
     <div id="window-layer" class="window-layer"></div>
   </main>
-
-  <nav class="dock-wrap" aria-label="Dock">
-    <div class="dock" id="dock"></div>
-  </nav>
+  <header class="workspace-controls" aria-label="Workspace controls">
+    <button class="workspace-apps" id="btn-apps" type="button" aria-expanded="false" aria-controls="workspace-menu">
+      <img src="./assets/icons/icon-192.png" alt="" width="27" height="27" /><span>Apps</span><span data-icon="chevron-down" aria-hidden="true"></span>
+    </button>
+    <button class="workspace-view" id="btn-fullscreen" title="Toggle screen fullscreen (F)" aria-label="Toggle screen fullscreen"><span data-icon="fullscreen"></span></button>
+  </header>
+  <aside class="workspace-menu" id="workspace-menu" aria-label="App launcher" hidden>
+    <div class="workspace-menu-head"><div><strong>SmartBoardOS</strong><small>Classroom workspace</small></div><button class="btn" id="btn-home">Home</button></div>
+    <div id="workspace-grid" class="workspace-grid"></div>
+    <div class="workspace-menu-foot">
+      <button class="btn" id="btn-customize" aria-expanded="false">Customize</button>
+      <button class="btn" id="btn-cmd">Search</button>
+      <button class="btn" id="btn-theme" aria-label="Toggle theme"><span data-icon="moon"></span></button>
+      <button class="btn" id="btn-install" hidden>Install web app</button>
+    </div>
+    <div id="workspace-custom" hidden></div>
+  </aside>
 </div>
 
 <!-- Command palette -->
@@ -147,11 +82,6 @@
       <span><kbd>Esc</kbd> close</span>
     </div>
   </div>
-</div>
-
-<!-- Widget picker dialog -->
-<div class="modal-backdrop" id="modal-backdrop" hidden>
-  <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
 </div>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>

@@ -1,18 +1,17 @@
 import { createChromaRenderer } from '../chroma.js';
+import { cameraShapes, cameraPositions, cameraFrame, paintCameraFrame } from '../camera-layout.js';
+import { store } from '../db.js';
 import { el, downloadBlob, fmtDuration } from '../utils.js';
 
 const stopTracks = (stream) => stream?.getTracks().forEach(track => track.stop());
 const resolutions = [[1280, 720], [1920, 1080], [2560, 1440], [3840, 2160]];
 
-export function mount({ root }) {
+export function mount({ root, api }) {
   const host = el('div', { class: 'settings studio' }, el('h2', { text: 'Recording Studio' }));
   root.append(el('div', { class: 'app' }, host));
   const library = window.smartboardLibrary;
-  if (!library) {
-    host.append(el('p', { text: 'Use the offline installer for full features. Camera video, screen and microphone recording stay on your computer.' }),
-      el('a', { class: 'btn primary', href: './install.html', text: 'Get the offline installer' }));
-    return {};
-  }
+  if (!library) host.append(el('p', { text: 'Position your live camera on the board here. For screen, camera and mic recording, use the offline installer.' }),
+    el('a', { class: 'btn', href: './install.html', text: 'Get offline installer' }));
 
   const row = (label, control) => el('label', { class: 'set-row' }, label, control);
   const select = (options) => el('select', { class: 'field' }, options.map(([value, text]) => el('option', { value, text })));
@@ -29,6 +28,12 @@ export function mount({ root }) {
   const keyColor = el('input', { type: 'color', value: '#00a040' });
   const tolerance = el('input', { type: 'range', min: 20, max: 170, value: 85 });
   const device = select([['', 'System default camera']]);
+  const savedLayout = store.get('camera-layout-v1', {});
+  const shape = select([['wide','Wide'],['square','Square'],['rounded','Rounded square'],['circle','Circle']]);
+  const position = select([['bottom-right','Bottom right'],['bottom-left','Bottom left'],['top-right','Top right'],['top-left','Top left']]);
+  shape.value = cameraShapes.includes(savedLayout.shape) ? savedLayout.shape : 'rounded';
+  position.value = cameraPositions.includes(savedLayout.position) ? savedLayout.position : 'bottom-right';
+  const extent = el('input', { type: 'range', min: 13, max: 42, value: Math.min(42,Math.max(13,Number(savedLayout.extent)||22)), 'aria-label': 'Camera size' });
   const status = el('p', { role: 'status', text: 'Nothing is captured until you start preview or recording.' });
   const video = el('video', { muted: true, autoplay: true, playsinline: true });
   video.muted = true;
@@ -48,14 +53,23 @@ export function mount({ root }) {
     return chroma;
   };
   const overlay = el('div', { class: 'studio-camera-overlay', hidden: true, 'aria-hidden': 'true' }, preview);
+  function applyLayout() {
+    overlay.dataset.shape = shape.value;
+    overlay.dataset.position = position.value;
+    overlay.style.setProperty('--camera-size', `${extent.value}vw`);
+    store.set('camera-layout-v1', {shape:shape.value,position:position.value,extent:Number(extent.value)});
+  }
+  shape.onchange = position.onchange = extent.oninput = applyLayout;
+  applyLayout();
   const placeOverlays = () => {
-    const layer = document.fullscreenElement || document.querySelector('.wb-presenting:not(.min):not(.closing)') || document.body;
+    const layer = document.fullscreenElement || document.body;
     layer.append(overlay);
     if (indicator) layer.append(indicator);
   };
   let known = new Set();
   let camera;
-  let animation;
+  let animation, animationIsVideo = false;
+  let composer;
   let recorder;
   let closed = false;
   let pending = false;
@@ -68,8 +82,7 @@ export function mount({ root }) {
   const stopRecording = () => { if (liveRecorder()) recorder.stop(); };
   placeOverlays();
   document.addEventListener('fullscreenchange', placeOverlays);
-  document.addEventListener('sbos:presentation', placeOverlays);
-  const lockInputs = locked => [mode, size, frameRate, mic, systemAudio, inset, followCamera, key, device].forEach(input => { input.disabled = locked; });
+  const lockInputs = locked => [mode, size, frameRate, mic, systemAudio, inset, followCamera, key, device, shape, position, extent].forEach(input => { input.disabled = locked; });
 
   async function refreshDevices(auto = false) {
     const cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.deviceId);
@@ -89,28 +102,33 @@ export function mount({ root }) {
   const useVideoFrames = 'requestVideoFrameCallback' in video;
   function stopPaint() {
     if (animation == null) return;
-    if (useVideoFrames) video.cancelVideoFrameCallback(animation);
+    if (animationIsVideo) video.cancelVideoFrameCallback(animation);
     else cancelAnimationFrame(animation);
     animation = null;
   }
   function queuePaint() {
-    if (!camera || !key.checked || animation != null) return;
-    animation = useVideoFrames ? video.requestVideoFrameCallback(paint) : requestAnimationFrame(paint);
+    if (!camera || (!key.checked && !composer) || animation != null) return;
+    // Canvas recording must also tick when the camera image is not being composited.
+    animationIsVideo = useVideoFrames && !composer;
+    animation = animationIsVideo ? video.requestVideoFrameCallback(paint) : requestAnimationFrame(paint);
   }
   function paint(now) {
     animation = null;
-    if (!camera || !key.checked) return;
+    if (!camera || (!key.checked && !composer)) return;
     if (video.readyState >= 2) {
-      const renderer = initChroma();
-      const rate = Math.min(Number(frameRate.value), renderer.software ? 12 : 30);
-      if (now - lastFrame >= 1000/rate - 2 && (useVideoFrames || video.currentTime !== lastMediaTime)) {
-        lastFrame = now;
-        lastMediaTime = video.currentTime;
-        try {
-          renderer.paint(video, keyRGB, Number(tolerance.value));
-          renderer.canvas.hidden = false;
-          video.classList.add('studio-video-source');
-        } catch { video.classList.remove('studio-video-source'); renderer.canvas.hidden = true; }
+      const renderer = key.checked ? initChroma() : null;
+      const rate = Math.min(Number(frameRate.value), renderer?.software ? 12 : composer ? 24 : 30);
+      if (now - lastFrame >= 1000/rate - 2 && (composer || animationIsVideo || video.currentTime !== lastMediaTime)) {
+        lastFrame = now; lastMediaTime = video.currentTime;
+        let source = video;
+        if (renderer) {
+          try { renderer.paint(video, keyRGB, Number(tolerance.value)); renderer.canvas.hidden = false; video.classList.add('studio-video-source'); source = renderer.canvas; }
+          catch { video.classList.remove('studio-video-source'); renderer.canvas.hidden = true; }
+        }
+        if (composer) {
+          paintCameraFrame(composer.ctx,source,composer.canvas.width,composer.canvas.height,composer.shape);
+          composer.track?.requestFrame?.();
+        }
       }
     }
     queuePaint();
@@ -122,7 +140,7 @@ export function mount({ root }) {
 
   function stopPreview() {
     generation++;
-    stopPaint(); lastFrame = -Infinity; lastMediaTime = -1;
+    stopPaint(); composer = null; lastFrame = -Infinity; lastMediaTime = -1;
     video.classList.remove('studio-video-source'); if (chroma) chroma.canvas.hidden = true;
     stopTracks(camera); camera = null; video.srcObject = null;
     preview.hidden = overlay.hidden = true;
@@ -194,7 +212,7 @@ export function mount({ root }) {
   } });
 
   async function start() {
-    if (pending || active || closed) return;
+    if (!library || pending || active || closed) return;
     pending = true; lockInputs(true); begin.disabled = previewButton.disabled = stopButton.disabled = true;
     const kind = mode.value;
     const [width, height] = resolutions[size.value];
@@ -217,8 +235,20 @@ export function mount({ root }) {
         if (!inset.checked) stopPreview();
       } else if (kind === 'camera') {
         if (!await startCamera(true)) throw new Error('No camera available.');
-        if (key.checked) await video.play();
-        const source = key.checked ? initChroma().canvas.captureStream(Math.min(fps, chroma.software ? 12 : 30)) : camera;
+        let source = camera;
+        if (key.checked || shape.value !== 'wide') {
+          await video.play();
+          const { width: w, height: h } = cameraFrame(video.videoWidth,video.videoHeight,key.checked?1280:width,shape.value);
+          const canvas = el('canvas',{width:w,height:h});
+          const ctx = canvas.getContext('2d',{alpha:false});
+          composer = {canvas,ctx,shape:shape.value};
+          let initial = video;
+          if (key.checked) { const effect=initChroma(); effect.paint(video,keyRGB,Number(tolerance.value)); initial=effect.canvas; }
+          paintCameraFrame(ctx, initial, w, h, shape.value);
+          source = canvas.captureStream(Math.min(fps,chroma?.software && key.checked ? 12 : 24));
+          composer.track = source.getVideoTracks()[0];
+          stopPaint(); lastFrame = -Infinity; queuePaint();
+        }
         if (source !== camera) streams.push(source);
         output = new MediaStream(source.getVideoTracks());
       } else { stopPreview(); output = new MediaStream(); }
@@ -269,7 +299,7 @@ export function mount({ root }) {
           active = false; lockInputs(false); stop.disabled = true; begin.disabled = previewButton.disabled = stopButton.disabled = false; resolve();
         };
       });
-      new Set([...output.getTracks(), ...audioTracks]).forEach(track => track.addEventListener('ended', stopRecording, { once: true }));
+      new Set([...output.getTracks(), ...audioTracks, ...(camera?.getVideoTracks() || [])]).forEach(track => track.addEventListener('ended', stopRecording, { once: true }));
       recorder.start(1000);
       startedAt = performance.now(); pausedAt = pausedTotal = 0; marks = []; markStatus.textContent = '';
       pause.textContent = 'Pause';
@@ -277,6 +307,7 @@ export function mount({ root }) {
       indicator = el('button', { class: 'recording-indicator', text: '● Recording · Stop', onclick: stopRecording });
       placeOverlays();
       const actual = output.getVideoTracks()[0]?.getSettings();
+      if (kind === 'screen') { api.wm.toggleMinimize('recording', true); api.open('whiteboard'); }
       status.textContent = `Recording${actual?.width ? ` · ${actual.width} × ${actual.height}` : ''}${loopback ? ' · system audio on' : ''}…`;
     } catch (e) {
       streams.forEach(stopTracks); audioMixer?.close().catch(() => {}); stopPreview();
@@ -290,13 +321,13 @@ export function mount({ root }) {
   const onDevice = () => refreshDevices(true).catch(() => {});
   navigator.mediaDevices?.addEventListener('devicechange', onDevice);
   refreshDevices().catch(() => {});
-  host.append(el('p', { text: 'Record this app, a camera, or just your microphone. Resolution depends on the source and hardware. Video uses WebM; no upload.' }),
-    row('Capture source', mode), row('Maximum recording resolution', size), row('Frame rate', frameRate), row('Include microphone', mic), library.systemAudioSupported ? row('Include computer playback audio in window recording (Windows)', systemAudio) : null, row('Include camera inset in window recording', inset),
-    row('Camera device', device), row('Enable auto-preview of new cameras (starts a camera preview now)', followCamera),
+  host.append(library ? el('p', { text: 'Record this app, a camera, or just your microphone. Resolution depends on the source and hardware. Video uses WebM; no upload.' }) : document.createDocumentFragment(),
+    ...(library ? [row('Capture source', mode), row('Maximum recording resolution', size), row('Frame rate', frameRate), row('Include microphone', mic), library.systemAudioSupported ? row('Include computer playback audio (Windows)', systemAudio) : null, row('Include camera inset in window recording', inset)].filter(Boolean) : []),
+    row('Camera device', device), row('Video shape', shape), row('On-board position', position), row('On-board size', extent), row('Enable auto-preview of new cameras (starts a camera preview now)', followCamera),
     row('Chroma key · requires a solid backdrop', key), row('Backdrop colour', keyColor), row('Key tolerance', tolerance),
-    el('p', { text: 'A phone must already appear as a webcam on your computer. Keyed camera-only video runs at a lower resolution for responsiveness; use window mode for a keyed inset.' }),
-    el('div', { class: 'hero-actions' }, previewButton, stopButton, begin, pause, stop, folder),
-    el('div', { class: 'hero-actions studio-chapters' }, markText, marker, chapters, markStatus), status);
+    el('p', { text: 'Use a phone after it appears as a system webcam. Square and circular camera-only recordings use square WebM frames; rounded corners have a dark matte. Shaped/keyed capture is capped for responsiveness.' }),
+    el('div', { class: 'hero-actions' }, previewButton, stopButton, el('button', { class: 'btn', text: 'Show board', onclick: () => { api.wm.toggleMinimize('recording',true); api.open('whiteboard'); } }), ...(library ? [begin,pause,stop,folder] : [])),
+    ...(library ? [el('div', { class: 'hero-actions studio-chapters' }, markText, marker, chapters, markStatus)] : []), status);
   return {
     save: () => {
       stopRecording();
@@ -307,7 +338,6 @@ export function mount({ root }) {
       stopRecording();
       stopPreview(); chroma?.dispose(); overlay.remove();
       document.removeEventListener('fullscreenchange', placeOverlays);
-      document.removeEventListener('sbos:presentation', placeOverlays);
       navigator.mediaDevices?.removeEventListener('devicechange', onDevice);
     },
   };

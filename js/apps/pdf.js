@@ -21,7 +21,7 @@ export function mount({ root, params, api }) {
   let renderTask = null;
   let docName = '';
   let annotationSession;
-  let closed = false, exporting = false, annotationNav = false;
+  let closed = false, exporting = false, annotationNav = false, loadId = 0, renderId = 0, observer;
 
   /* ---------- dom ---------- */
   const pageCanvas = el('canvas', { class: 'pdf-page-canvas' });
@@ -32,28 +32,34 @@ export function mount({ root, params, api }) {
   const drop = el('div', { class: 'pdf-drop' },
     el('div', { class: 'big-ico', html: icon('pdf') }),
     el('h3', { text: 'Open a document to present' }),
-    el('p', { text: 'Choose PDF, PPTX, DOCX, TXT or Markdown. Office quick import extracts text; choose a PDF export for the full layout and images. Nothing is uploaded.' }),
+    el('p', { text: 'Import the entire PDF or PowerPoint (.pptx) to read and annotate here. For older .ppt files or exact PowerPoint fidelity, save a PDF copy first. DOCX, TXT and Markdown use text import. Nothing is uploaded.' }),
     el('button', { class: 'btn primary', html: `${icon('folder')}<span>Choose file</span>`, onclick: openPicker }),
     el('div', { class: 'recent-list', style: { marginTop: '18px', textAlign: 'left' } })
   );
 
   view.append(drop, pageCanvas);
 
-  const pageInput = el('input', { class: 'field', type: 'text', value: '1', style: { width: '48px', textAlign: 'center', height: '28px' } });
+  const pageInput = el('input', { class: 'field', type: 'text', inputmode: 'numeric', 'aria-label': 'Page number', value: '1', style: { width: '48px', textAlign: 'center', height: '28px' } });
   const pageTotal = el('span', { style: { fontSize: '12px', color: 'var(--text-3)' }, text: '/ 0' });
   const zoomLabel = el('button', { class: 'tool-btn ghost', text: '100%', title: 'Fit width', onclick: () => { fitMode = 'width'; renderCurrent(); } });
 
-  const annotateBtn = el('button', { class: 'tool-btn ghost', html: `${icon('pen')}<span>Write on PDF</span>`,
-    title: 'Write on current PDF page', onclick: openAnnotation });
+  const annotateBtn = el('button', { class: 'tool-btn ghost', html: `${icon('pen')}<span>Annotate</span>`,
+    title: 'Write on the current page or slide', onclick: openAnnotation });
   const exportBtn = el('button', { class: 'tool-btn ghost', html: `${icon('download')}<span>Export with ink</span>`, title: 'Export all pages as an annotated PDF', onclick: exportAnnotated });
+  const inkPage = el('input', { class: 'field pdf-ink-jump', type: 'text', inputmode: 'numeric', 'aria-label': 'Jump to annotation page' });
+  inkPage.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); moveAnnotation(Number(inkPage.value) || pageNum); inkPage.blur(); } };
+  const backToBoard = () => api.close();
+  const exportInk = el('button', { class: 'tool-btn', text: 'Export with ink', onclick: exportAnnotated });
   const annotateBar = el('div', { class: 'app-toolbar pdf-annotation-bar' },
     el('button', { class: 'tool-btn ghost', html: `${icon('chevron-left')}<span>Back to reading</span>`, onclick: closeAnnotation }),
     el('button', { class: 'tool-btn', title: 'Previous annotation page', 'aria-label': 'Previous annotation page', html: icon('chevron-left'), onclick: () => stepAnnotation(-1) }),
     el('button', { class: 'tool-btn', title: 'Next annotation page', 'aria-label': 'Next annotation page', html: icon('chevron-right'), onclick: () => stepAnnotation(1) }),
-    el('span', { class: 'pdf-annotation-label', text: '' }));
+    inkPage, el('span', { class: 'pdf-annotation-label', text: '' }), exportInk,
+    el('button', { class: 'tool-btn', text: 'Close document', onclick: backToBoard }));
   const annotateHost = el('div', { class: 'pdf-annotation-host' });
   const annotatePanel = el('div', { class: 'pdf-annotation-panel', hidden: true }, annotateBar, annotateHost);
   const toolbar = el('div', { class: 'app-toolbar pdf-toolbar' },
+    el('button', { class: 'tool-btn', text: '← Whiteboard', onclick: backToBoard }),
     annotateBtn, exportBtn,
     el('button', { class: 'tool-btn', html: icon('folder'), title: 'Open document', onclick: openPicker }),
     el('div', { class: 'sep' }),
@@ -66,8 +72,7 @@ export function mount({ root, params, api }) {
     el('button', { class: 'tool-btn', html: icon('plus'), title: 'Zoom in', onclick: () => { fitMode = 'free'; scale = clamp(scale * 1.25, 0.1, 4); renderCurrent(); } }),
     el('button', { class: 'tool-btn', html: icon('rotate'), title: 'Rotate', onclick: () => { rotation = (rotation + 90) % 360; renderCurrent(); } }),
     el('div', { class: 'sep' }),
-    el('button', { class: 'tool-btn ghost', html: `${icon('board')}<span>Send to board</span>`, title: 'Send current page to whiteboard', onclick: sendToBoard }),
-    el('button', { class: 'tool-btn', html: icon('print'), title: 'Print', onclick: () => window.print() })
+    el('span', { class: 'pdf-file-title', 'aria-live': 'polite' })
   );
 
   const main = el('div', { class: 'pdf-main' }, view, status);
@@ -81,11 +86,13 @@ export function mount({ root, params, api }) {
   }
 
   async function loadFile(file) {
+    const request = ++loadId;
     try {
       status.textContent = `Loading ${file.name}…`;
-      const { buffer: buf, imported } = await toPdf(file);
-      await loadBuffer(buf.slice(0), file.name);
-      if (imported) toast('Quick text import ready. For original layout and images, use PDF.', 'info', 5000);
+      const { buffer: buf, imported, warnings } = await toPdf(file, (n, total) => { if (closed || request !== loadId) return false; status.textContent = `Importing slide ${n} of ${total}…`; });
+      if (closed || request !== loadId || !await loadBuffer(buf.slice(0), file.name, request)) return;
+      if (imported === 'text') toast('Text import ready. For original layout and images, use PDF.', 'info', 5000);
+      if (warnings?.length) toast(`PowerPoint loaded. Some slides contain unsupported elements (${warnings.join(', ')}). For exact layout, use a PDF export.`, 'warn', 8500);
       // keep a copy for "recents" (max 8 docs, 40 MB guard)
       if (buf.byteLength < 40 * 1024 * 1024) {
         const recents = (await idb.get('docs', 'recents')) || [];
@@ -99,21 +106,28 @@ export function mount({ root, params, api }) {
         renderRecents();
       }
     } catch (e) {
+      if (closed || request !== loadId) return;
       console.error(e);
       toast(e.message || 'Could not read that document', 'err');
       status.textContent = 'Failed to load document';
     }
   }
 
-  async function loadBuffer(buf, name = 'Document.pdf') {
-    if (closed) return;
-    await closeAnnotation();
-    if (!pdfjsLib) { toast('PDF engine not available', 'err'); return; }
-    if (doc) { try { doc.destroy(); } catch { /* noop */ } }
-    doc = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
+  async function loadBuffer(buf, name = 'Document.pdf', request = ++loadId) {
+    if (closed || !pdfjsLib) return false;
+    const loaded = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
+    if (closed || request !== loadId) { await loaded.destroy(); return false; }
+    await closeAnnotation(false);
+    if (closed || request !== loadId) { await loaded.destroy(); return false; }
+    renderId++;
+    renderTask?.cancel();
+    doc?.destroy().catch(() => {});
+    doc = loaded;
     docName = name;
     pageNum = 1;
-    api.setTitle(`PDF · ${name}`);
+    rotation = 0;
+    fitMode = 'width';
+    toolbar.querySelector('.pdf-file-title').textContent = name;
     drop.style.display = 'none';
     view.style.display = 'flex';
     side.style.display = 'flex';
@@ -121,7 +135,7 @@ export function mount({ root, params, api }) {
     status.textContent = `${name} · ${doc.numPages} pages`;
     buildThumbs();
     await renderCurrent();
-    toast(`${name} opened`, 'ok');
+    return true;
   }
 
   /* ---------- rendering ---------- */
@@ -129,9 +143,12 @@ export function mount({ root, params, api }) {
     if (!doc) return;
     pageNum = clamp(pageNum, 1, doc.numPages);
     pageInput.value = String(pageNum);
+    const request = ++renderId, source = doc, n = pageNum;
     try {
-      if (renderTask) { try { renderTask.cancel(); } catch { /* noop */ } }
-      const page = await doc.getPage(pageNum);
+      const previous = renderTask;
+      if (previous) { previous.cancel(); await previous.promise.catch(() => {}); }
+      const page = await source.getPage(n);
+      if (request !== renderId || source !== doc || closed) return;
       const base = page.getViewport({ scale: 1, rotation });
       let targetScale = scale;
       if (fitMode === 'width') {
@@ -141,7 +158,7 @@ export function mount({ root, params, api }) {
       }
       scale = targetScale;
       const vp = page.getViewport({ scale: targetScale, rotation });
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(6_000_000 / (vp.width * vp.height)));
       pageCanvas.width = Math.floor(vp.width * dpr);
       pageCanvas.height = Math.floor(vp.height * dpr);
       pageCanvas.style.width = `${Math.floor(vp.width)}px`;
@@ -150,6 +167,7 @@ export function mount({ root, params, api }) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       renderTask = page.render({ canvasContext: ctx, viewport: vp });
       await renderTask.promise;
+      if (request !== renderId || closed) return;
       renderTask = null;
       zoomLabel.textContent = `${Math.round(targetScale * 100)}%`;
       view.scrollTop = 0;
@@ -159,34 +177,35 @@ export function mount({ root, params, api }) {
     }
   }
 
-  async function buildThumbs() {
-    side.innerHTML = '';
-    if (!doc) return;
-    const total = Math.min(doc.numPages, 160);
-    for (let i = 1; i <= total; i++) {
-      const holder = el('button', { class: 'pdf-thumb', dataset: { page: String(i) }, onclick: () => go(i) });
-      side.append(holder);
-      // lazy render
-      const render = async () => {
-        try {
-          const page = await doc.getPage(i);
-          const vp0 = page.getViewport({ scale: 1 });
-          const s = 108 / vp0.width;
-          const vp = page.getViewport({ scale: s });
-          const c = el('canvas');
-          const dpr = Math.min(window.devicePixelRatio || 1, 2);
-          c.width = Math.floor(vp.width * dpr);
-          c.height = Math.floor(vp.height * dpr);
-          const cx = c.getContext('2d');
-          cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          await page.render({ canvasContext: cx, viewport: vp }).promise;
-          holder.prepend(c);
-          holder.append(el('span', { text: String(i) }));
-        } catch { /* ignore */ }
-      };
-      setTimeout(render, i * 45);
+  function buildThumbs() {
+    observer?.disconnect();
+    side.replaceChildren();
+    const source = doc;
+    if (!source) return;
+    observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        observer.unobserve(entry.target);
+        drawThumb(source, entry.target);
+      }
+    }, { root: side, rootMargin: '180px' });
+    const frag = document.createDocumentFragment();
+    // A jump field is always available for documents with more thumbnails than the rail can hold.
+    for (let i = 1; i <= Math.min(source.numPages, 1500); i++) {
+      const holder = el('button', { class: 'pdf-thumb', dataset: { page: String(i) }, 'aria-label': `Go to page ${i}`, onclick: () => go(i) }, el('span', { text: String(i) }));
+      frag.append(holder); observer.observe(holder);
     }
+    side.append(frag);
     updateThumbActive();
+  }
+  async function drawThumb(source, holder) {
+    try {
+      const page = await source.getPage(Number(holder.dataset.page));
+      if (source !== doc || closed || !holder.isConnected) return;
+      const vp = page.getViewport({ scale: 108 / page.getViewport({ scale: 1 }).width });
+      const c = el('canvas', { width: Math.max(1,Math.floor(vp.width)), height: Math.max(1,Math.floor(vp.height)) });
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      if (holder.isConnected) holder.prepend(c);
+    } catch { /* optional preview */ }
   }
 
   function updateThumbActive() {
@@ -195,7 +214,7 @@ export function mount({ root, params, api }) {
 
   function go(n) {
     if (!doc) return;
-    pageNum = clamp(n, 1, doc.numPages);
+    pageNum = clamp(Math.trunc(n), 1, doc.numPages);
     renderCurrent();
   }
 
@@ -216,14 +235,15 @@ export function mount({ root, params, api }) {
     return { src: canvas.toDataURL('image/jpeg', 0.94), x: 0, y: 0, w: canvas.width, h: canvas.height };
   }
   const inkKey = (source, n, angle) => `pdf-ink:${source.fingerprints[0]}:${n}:${angle}`;
-  async function stepAnnotation(delta) {
+  const stepAnnotation = delta => moveAnnotation(pageNum + delta);
+  async function moveAnnotation(page) {
     if (!doc || !annotationSession?.board || annotationNav) return;
-    const next = clamp(pageNum + delta, 1, doc.numPages);
+    const next = clamp(Math.trunc(page), 1, doc.numPages);
     if (next === pageNum) return;
     annotationNav = true;
     try {
       if (!await annotationSession.board.save()) { toast('Could not save this page’s ink.', 'err'); return; }
-      await closeAnnotation();
+      await closeAnnotation(false);
       pageNum = next;
       await openAnnotation();
     } finally { annotationNav = false; }
@@ -232,15 +252,17 @@ export function mount({ root, params, api }) {
   async function exportAnnotated() {
     if (!doc || exporting) return;
     const source = doc, preferredRotation = rotation;
+    if (annotationSession?.board && !await annotationSession.board.save()) { toast('Could not save the current page before export.', 'err'); return; }
+    if (closed || exporting || source !== doc) return;
     if (source.numPages > 120) { toast('Export supports up to 120 pages. Split the source PDF first.', 'warn'); return; }
     const Pdf = window.jspdf?.jsPDF;
     if (!Pdf) return toast('PDF export unavailable', 'err');
-    exporting = exportBtn.disabled = true;
+    exporting = exportBtn.disabled = exportInk.disabled = true;
     const progress = el('p', { class: 'pdf-export-status', role: 'status' });
     const cancel = el('button', { class: 'tool-btn', text: 'Cancel export', onclick: () => { cancelled = true; } });
     let cancelled = false;
     const controls = el('div', { class: 'app-toolbar pdf-export-controls' }, progress, cancel);
-    toolbar.after(controls);
+    (annotationSession ? annotateBar : toolbar).after(controls);
     let output, bytes = 0;
     try {
       for (let n = 1; n <= source.numPages; n++) {
@@ -276,11 +298,11 @@ export function mount({ root, params, api }) {
         canvas.width = canvas.height = 1;
       }
       if (!output || cancelled || closed || source !== doc) return;
-      downloadBlob(output.output('blob'), `${docName.replace(/\.pdf$/i, '')}-annotated.pdf`);
+      downloadBlob(output.output('blob'), `${docName.replace(/\.(pdf|pptx|docx|txt|md)$/i, '')}-annotated.pdf`);
       toast('Annotated PDF downloaded (flattened pages)', 'ok');
     } catch (error) {
       if (!closed && !cancelled && source === doc) toast(error.message || 'Annotated PDF export failed', 'err');
-    } finally { controls.remove(); exporting = exportBtn.disabled = false; }
+    } finally { controls.remove(); exporting = exportBtn.disabled = exportInk.disabled = false; }
   }
 
   async function openAnnotation() {
@@ -298,7 +320,8 @@ export function mount({ root, params, api }) {
       if (annotationSession !== session || closed || doc !== source || n !== pageNum || angle !== rotation) return;
       annotatePanel.hidden = false;
       toolbar.hidden = wrap.hidden = true;
-      annotateBar.querySelector('.pdf-annotation-label').textContent = `Page ${n} · Ink saved on this device`;
+      inkPage.value = String(n);
+      annotateBar.querySelector('.pdf-annotation-label').textContent = `of ${source.numPages} · Ink saved on this device`;
       annotateHost.append(mountPoint);
       const board = await mountBoard({ root: mountPoint, api, annotation: { key, image } });
       if (annotationSession !== session || closed) board.onClose();
@@ -315,7 +338,7 @@ export function mount({ root, params, api }) {
     }
   }
 
-  async function closeAnnotation() {
+  async function closeAnnotation(redraw = true) {
     const session = annotationSession;
     if (!session) return;
     annotationSession = null;
@@ -325,20 +348,7 @@ export function mount({ root, params, api }) {
     session.mountPoint.remove();
     await saved;
     annotateBtn.disabled = false;
-    if (!closed) renderCurrent();
-  }
-
-  async function sendToBoard() {
-    if (!doc) { toast('Open a PDF first', 'warn'); return; }
-    try {
-      const n = pageNum;
-      const { src } = await pageImage(doc, n, rotation);
-      if (closed) return;
-      api.open('whiteboard', { image: src, asBackground: true, newPage: true, title: `${docName} · p${n}` });
-    } catch (e) {
-      console.error(e);
-      toast('Could not send page to board', 'err');
-    }
+    if (!closed && redraw) renderCurrent();
   }
 
   /* ---------- recents ---------- */
@@ -355,7 +365,7 @@ export function mount({ root, params, api }) {
           const fresh = (await idb.get('docs', 'recents')) || [];
           const found = fresh.find((x) => x.name === r.name && x.ts === r.ts) || r;
           if (!found.data) return toast('File no longer stored', 'warn');
-          await loadBuffer(found.data.slice(0), found.name);
+          try { await loadBuffer(found.data.slice(0), found.name); } catch { toast('Could not open the saved document', 'err'); }
         },
       },
         el('span', { class: 'pal-ico', html: icon('pdf') }),
@@ -385,8 +395,9 @@ export function mount({ root, params, api }) {
   const isFocused = () => document.body.contains(root) && root.closest('.win')?.classList.contains('focused');
   const onKey = (e) => {
     if (annotationSession || !isFocused() || ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
-    if (e.key === 'ArrowRight' || e.key === 'PageDown') go(pageNum + 1);
-    if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(pageNum - 1);
+    if (e.defaultPrevented) return;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); go(pageNum + 1); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(pageNum - 1); }
   };
   window.addEventListener('keydown', onKey);
   const onResize = debounce(() => { if (fitMode === 'width' && doc && annotatePanel.hidden && !closed) renderCurrent(); }, 200);
@@ -400,10 +411,9 @@ export function mount({ root, params, api }) {
     onParams: (p) => { if (p.file) loadFile(p.file); },
     onResize: () => onResize(),
     save: () => annotationSession?.board?.save(),
-    togglePresentation: () => annotationSession?.board?.togglePresentation(),
-    onClose: () => {
-      closed = true;
-      closeAnnotation();
+    onClose: async () => {
+      closed = true; loadId++; renderId++; observer?.disconnect(); renderTask?.cancel();
+      await closeAnnotation(false);
       window.removeEventListener('keydown', onKey);
       ro.disconnect();
       if (doc) doc.destroy().catch(() => {});

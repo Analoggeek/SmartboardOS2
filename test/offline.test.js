@@ -46,17 +46,15 @@ function bootWorker({ cacheFailure = false } = {}) {
 test('precache covers every local renderer file and PWA shortcut offline', async () => {
   const worker = bootWorker();
   await worker.event('install');
-  const expected = ['./', 'index.html', 'install.html', 'student.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)];
+  const expected = ['./', 'index.html', 'install.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)];
   assert.deepEqual(worker.cached.sort(), expected.map((file) => new URL(file, scope).href).sort());
   const manifest = JSON.parse(readFileSync('manifest.webmanifest', 'utf8'));
-  assert.deepEqual(manifest.shortcuts.map(({ url }) => url), ['./?app=whiteboard', './?app=pdf', './?app=class', './?app=maps', './?app=lab']);
+  assert.deepEqual(manifest.shortcuts.map(({ url }) => url), ['./?app=whiteboard', './?app=class', './?app=maps']);
   for (const { url } of manifest.shortcuts) {
     assert.equal(await worker.event('fetch', { request: {
       url: new URL(url, scope).href, method: 'GET', mode: 'navigate',
     } }), scope);
   }
-  const student = new URL('student.html?board=0123456789abcdef0123456789abcdef', scope).href;
-  assert.equal(await worker.event('fetch', { request: { url: student, method: 'GET', mode: 'navigate' } }), new URL('student.html', scope).href);
   await worker.event('activate');
   assert.deepEqual(worker.removed, ['sbos-v1.3.0', `sbos-offline:${scope}:old`]);
 });
@@ -70,7 +68,7 @@ test('failed precache does not activate an incomplete update', async () => {
 
 
 test('desktop/preview routes cover runtime assets without exposing project files', () => {
-  for (const file of ['index.html', 'install.html', 'student.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)]) {
+  for (const file of ['index.html', 'install.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)]) {
     assert.equal(renderer.rendererAsset(`/${file}`).file, file);
   }
   for (const route of ['/.git/config', '/package.json', '/desktop/main.cjs', '/js/../package.json', '/js/%2fmain.js']) {
