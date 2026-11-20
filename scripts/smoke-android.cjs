@@ -2,15 +2,15 @@
 const assert = require('node:assert/strict');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
-  let tab;
+  let tab, tabs;
   for (let i = 0; i < 40 && !tab; i++) {
     try {
-      const tabs = await (await fetch('http://127.0.0.1:9222/json/list', {signal:AbortSignal.timeout(1000)})).json();
+      tabs = await (await fetch('http://127.0.0.1:9222/json/list', {signal:AbortSignal.timeout(1000)})).json();
       tab = tabs.find(t => t.url.startsWith('https://appassets.androidplatform.net/index.html'));
     } catch { /* WebView is still starting. */ }
     if (!tab) await sleep(500);
   }
-  assert(tab, 'Bundled offline page did not start');
+  assert(tab, `Bundled offline page did not start; WebView targets: ${JSON.stringify(tabs?.map(t=>({url:t.url,title:t.title})) || [])}`);
   const ws = new WebSocket(tab.webSocketDebuggerUrl);
   const open = new Promise((resolve,reject) => { ws.addEventListener('open',resolve); ws.addEventListener('error',reject); });
   const pending = new Map();
@@ -35,15 +35,18 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   try {
     await open;
     for (let i=0; i<40 && !await evalJs(`Boolean(${board})`); i++) await sleep(500);
-    assert.equal(await evalJs(`Boolean(${board})`), true, 'Whiteboard did not mount offline');
+    assert.equal(await evalJs(`Boolean(${board})`), true,
+      `Whiteboard did not mount offline: ${await evalJs("JSON.stringify({url:location.href,body:document.body?.innerText.slice(0,200),bundle:typeof smartboardAndroid})")}`);
     assert.equal(await evalJs("smartboardAndroid.isBundled() && document.querySelector('#home-offline-status').textContent"), 'Ready offline');
     assert.equal(await evalJs(`(${board}).state().pageCount`), 1);
     await evalJs("document.querySelector('.new-board-page').click()");
     assert.equal(await evalJs(`(${board}).state().pageCount`), 2);
     await evalJs('window.__sbos.saveWork()');
+    const original = await evalJs('performance.timeOrigin');
     await cdp('Page.reload', {ignoreCache:true});
-    for (let i=0; i<40 && !await evalJs(`Boolean(${board})`).catch(() => false); i++) await sleep(500);
+    for (let i=0; i<40 && !await evalJs(`performance.timeOrigin !== ${original} && Boolean(${board})`).catch(() => false); i++) await sleep(500);
+    assert.notEqual(await evalJs('performance.timeOrigin'), original, 'WebView did not reload');
     assert.equal(await evalJs(`(${board}).state().pageCount`), 2, 'Offline page edits did not persist');
     console.log('Bundled Android WebView: airplane mode first launch, new page and offline persistence passed');
   } finally { ws.close(); }
-})().catch(err => { console.error(err); process.exitCode = 1; });
+})().catch(err => { console.error(err); console.error(`::error title=Android WebView smoke test::${String(err.message).replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A')}`); process.exitCode = 1; });
