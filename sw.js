@@ -1,5 +1,5 @@
 /* SmartBoardOS service worker — offline first */
-const VERSION = `sbos-offline:${self.registration.scope}:1.4.14`;
+const VERSION = `sbos-offline:${self.registration.scope}:1.4.16`;
 const CORE = [
   './',
   './index.html',
@@ -36,7 +36,9 @@ const CORE = [
   './js/camera.js',
   './js/camera-layout.js',
   './js/emoji-data.js',
-  './js/apps/pdf.js',
+  './js/board-document.js',
+  './js/control-layout.js',
+  './js/board-templates.js',
   './js/apps/media.js',
   './js/apps/class.js',
   './js/apps/notes.js',
@@ -45,6 +47,7 @@ const CORE = [
   './vendor/pdf.min.js',
   './vendor/pdf.worker.min.js',
   './vendor/jspdf/jspdf.umd.min.js',
+  './assets/branding/classroom-hero.jpg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/maskable-512.png',

@@ -19,6 +19,7 @@ export function checkBoard(board) {
   for (const p of board.pages) {
     if (!p || !Array.isArray(p.objects) || (objects += p.objects.length) > 50000 || !text(p.bg, 24) ||
         (p.bgColor != null && !color(p.bgColor)) || (p.bgImage != null && !image(p.bgImage))) throw Error('Invalid board page or unsupported image format');
+    if (p.source != null && !['slide','document'].includes(p.source)) throw Error('Invalid board page source');
     if (p.title != null && !text(p.title, 80)) throw Error('Invalid page title');
     for (const o of p.objects) {
       if (!o || !supported.has(o.type)) throw Error('Unsupported item in lesson');
