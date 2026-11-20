@@ -49,7 +49,7 @@ test('precache covers every local renderer file and PWA shortcut offline', async
   const expected = ['./', 'index.html', 'install.html', 'manifest.webmanifest', ...['css', 'js', 'vendor', 'assets'].flatMap(files)];
   assert.deepEqual(worker.cached.sort(), expected.map((file) => new URL(file, scope).href).sort());
   const manifest = JSON.parse(readFileSync('manifest.webmanifest', 'utf8'));
-  assert.deepEqual(manifest.shortcuts.map(({ url }) => url), ['./?app=whiteboard', './?app=pdf', './?app=class']);
+  assert.deepEqual(manifest.shortcuts.map(({ url }) => url), ['./?app=whiteboard', './?app=pdf', './?app=class', './?app=maps', './?app=lab']);
   for (const { url } of manifest.shortcuts) {
     assert.equal(await worker.event('fetch', { request: {
       url: new URL(url, scope).href, method: 'GET', mode: 'navigate',

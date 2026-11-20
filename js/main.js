@@ -1,5 +1,6 @@
 /* SmartBoardOS — system bootstrap */
 import { $, el, toast, fmtClock, relTime } from './utils.js';
+import { appArt } from './app-art.js';
 import { icon, hydrateIcons } from './icons.js';
 import { getSettings, saveSettings, store, idb } from './db.js';
 import { WindowManager } from './wm.js';
@@ -10,7 +11,6 @@ import * as MediaApp from './apps/media.js';
 import * as ClassApp from './apps/class.js';
 import * as NotesApp from './apps/notes.js';
 import * as CalculatorApp from './apps/calculator.js';
-import * as MapsApp from './apps/maps.js';
 import * as RecordingApp from './apps/recording.js';
 import * as SettingsApp from './apps/settings.js';
 import { capturePhoto } from './camera.js';
@@ -22,6 +22,19 @@ const WALLS = {
   sunset: ['rgba(249,115,22,.28)', 'rgba(244,63,94,.24)', 'rgba(168,85,247,.24)'],
   forest: ['rgba(16,185,129,.26)', 'rgba(59,130,246,.18)', 'rgba(132,204,22,.18)'],
   midnight: ['rgba(30,64,175,.34)', 'rgba(15,23,42,.40)', 'rgba(2,132,199,.26)'],
+};
+
+const lazyApp = (load) => async (context) => {
+  const loading = el('p', { class: 'settings', role: 'status', text: 'Loading offline tools…' });
+  context.root.append(loading);
+  try {
+    const module = await load();
+    loading.remove();
+    if (context.root.isConnected) return module.mount(context);
+  } catch (error) {
+    console.warn('[Offline app]', error);
+    context.root.replaceChildren(el('p', { class: 'settings', role: 'status', text: 'Could not open this tool. Close its window and try again.' }));
+  }
 };
 
 const APPS = [
@@ -51,7 +64,11 @@ const APPS = [
   },
   {
     id: 'maps', name: 'Map Atlas', tagline: 'Offline geography maps', icon: 'globe',
-    color: '#0891b2', soft: 'rgba(8,145,178,.18)', width: 1000, height: 735, mount: MapsApp.mount,
+    color: '#0891b2', soft: 'rgba(8,145,178,.18)', width: 1000, height: 735, mount: lazyApp(() => import('./apps/maps.js')),
+  },
+  {
+    id: 'lab', name: 'Smart Lab', tagline: 'Physics, Chemistry & Biology', icon: 'flask',
+    color: '#14b8a6', soft: 'rgba(20,184,166,.18)', width: 1100, height: 775, mount: lazyApp(() => import('./apps/lab.js')),
   },
   {
     id: 'recording', name: 'Recording Studio', tagline: 'Screen, camera and microphone', icon: 'camera',
@@ -62,7 +79,7 @@ const APPS = [
     color: '#64748b', soft: 'rgba(100,116,139,.18)', width: 640, height: 700, mount: SettingsApp.mount,
   },
 ];
-const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'recording', 'settings'];
+const DOCK_ORDER = ['whiteboard', 'pdf', 'media', 'class', 'notes', 'calculator', 'maps', 'lab', 'recording', 'settings'];
 
 /* =========================================================
    system
@@ -134,7 +151,7 @@ function renderDock() {
         else wm.open(id);
       },
     },
-      el('span', { class: 'dock-ico', style: { '--d-color': app.color, '--d-soft': app.soft }, html: icon(app.icon) }),
+      el('span', { class: 'dock-ico', style: { '--d-color': app.color, '--d-soft': app.soft }, html: appArt(id) }),
       el('span', { class: 'dock-label', text: app.name })
     );
     item.dataset.app = id;
@@ -160,7 +177,7 @@ function renderLaunch() {
   DOCK_ORDER.forEach((id) => {
     const app = wm.apps.get(id);
     const card = el('button', { class: 'launch-card', style: { '--card-color': app.color, '--card-soft': app.soft }, onclick: () => wm.open(id) },
-      el('span', { class: 'launch-icon', html: icon(app.icon) }),
+      el('span', { class: 'launch-icon', html: appArt(id) }),
       el('span', { class: 'launch-name', text: app.name }),
       el('span', { class: 'launch-desc', text: app.tagline })
     );
@@ -448,7 +465,15 @@ async function boot() {
 
   // PWA — register right away so the app is installable + offline-ready
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch((e) => console.warn('SW failed', e));
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((registration) => {
+      const notify = () => {
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          toast('Web update ready. Save your work, then close all SmartBoardOS tabs or windows and reopen.', 'info', 10000);
+        }
+      };
+      notify();
+      registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', notify));
+    }).catch((e) => console.warn('SW failed', e));
   }
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();

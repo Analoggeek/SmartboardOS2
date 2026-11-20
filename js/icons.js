@@ -1,6 +1,7 @@
 /* Inline SVG icon set (feather-style, 24x24, stroke = currentColor) */
 
 const P = {
+  flask: '<path d="M9 3h6M10 3v7l-5 8a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-8V3M8 15h8"/>',
   logo: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M9.5 12.5 15 7"/>',
   cursor: '<path d="M5 3l14 7.5-6.2 1.6L9.6 19z"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M15 5.5A251 251 0 0 0 5.5 5.5 2 2 0 0 0 3.5 7.5v9"/>',

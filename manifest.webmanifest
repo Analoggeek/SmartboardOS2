@@ -1,7 +1,7 @@
 {
   "name": "SmartBoardOS \u2014 Interactive Classroom Board",
   "short_name": "SmartBoardOS",
-  "description": "An offline classroom workspace with a pressure-sensitive whiteboard, PDF Studio, lesson notes and class tools.",
+  "description": "An offline classroom workspace with whiteboard, Document Studio, Map Atlas and Smart Lab.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
@@ -72,6 +72,30 @@
       "short_name": "Tools",
       "description": "Picker, timer, scoreboard",
       "url": "./?app=class",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Map Atlas",
+      "short_name": "Atlas",
+      "description": "Explore offline geography maps",
+      "url": "./?app=maps",
+      "icons": [
+        {
+          "src": "./assets/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Smart Lab",
+      "short_name": "Smart Lab",
+      "description": "Browse science diagrams",
+      "url": "./?app=lab",
       "icons": [
         {
           "src": "./assets/icons/icon-192.png",
