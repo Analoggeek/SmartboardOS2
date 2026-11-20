@@ -42,22 +42,11 @@ let win;
 function openWindow() {
   win = new BrowserWindow({
     width: 1280, height: 840, minWidth: 360, minHeight: 300,
-    show: false, backgroundColor: '#0b1020',
+    fullscreen: true, autoHideMenuBar: true, show: false, backgroundColor: '#0b1020',
     icon: path.join(app.getAppPath(), 'assets/icons/icon-512.png'),
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload.cjs') },
   });
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isLocal(url) || !/^\/student\.html\?board=[a-f0-9]{32}$/.test(url.slice(`${SCHEME}://${HOST}`.length))) return { action: 'deny' };
-    return { action: 'allow', overrideBrowserWindowOptions: {
-      width: 1024, height: 680, backgroundColor: '#070a14',
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: undefined },
-    } };
-  });
-  win.webContents.on('did-create-window', (child) => {
-    child.removeMenu();
-    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    child.webContents.on('will-navigate', event => event.preventDefault());
-  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
   win.once('ready-to-show', () => win?.show());
@@ -75,6 +64,13 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     protocol.handle(SCHEME, serveAsset);
+    ipcMain.handle('sbos:window:fullscreen', event => {
+      if (!win || event.sender !== win.webContents || event.senderFrame !== event.sender.mainFrame ||
+          event.senderFrame.url.split('?')[0] !== ENTRY) return false;
+      const full = !win.isFullScreen();
+      win.setFullScreen(full);
+      return full;
+    });
     registerUpdater({ app, dialog, ipcMain, net, shell, getWindow: () => win, entry: ENTRY });
     registerLibrary({ app, ipcMain, shell, getWindow: () => win, entry: ENTRY });
     const ses = session.defaultSession;

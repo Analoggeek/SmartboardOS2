@@ -1,8 +1,7 @@
-/* Class tools — random picker, spinner wheel, timer, stopwatch, scoreboard, dice */
+/* Class tools — random picker, spinner wheel, timer, stopwatch, scoreboard, seating and polls */
 import { el, toast, confetti, beep, chime, fmtDuration, clamp, uid, announce, downloadBlob } from '../utils.js';
 import { icon } from '../icons.js';
 import { state } from '../db.js';
-import { diceFace } from '../diceface.js';
 
 const TABS = [
   { id: 'pick', name: 'Picker', icon: 'users' },
@@ -10,7 +9,6 @@ const TABS = [
   { id: 'timer', name: 'Timer', icon: 'timer' },
   { id: 'stopwatch', name: 'Stopwatch', icon: 'stopwatch' },
   { id: 'score', name: 'Scoreboard', icon: 'trophy' },
-  { id: 'dice', name: 'Dice', icon: 'dice' },
   { id: 'seats', name: 'Seats', icon: 'users' },
   { id: 'poll', name: 'Quick poll', icon: 'layers' },
 ];
@@ -47,7 +45,6 @@ export function mount({ root }) {
     if (active === 'timer') panel.append(renderTimer());
     if (active === 'stopwatch') panel.append(renderStopwatch());
     if (active === 'score') panel.append(renderScore());
-    if (active === 'dice') panel.append(renderDice());
     if (active === 'seats') panel.append(renderSeats());
     if (active === 'poll') panel.append(renderPoll());
   }
@@ -470,45 +467,6 @@ export function mount({ root }) {
   }
 
   /* ================= Dice ================= */
-  function renderDice() {
-    let count = 2;
-    const row = el('div', { class: 'dice-row' });
-    const total = el('div', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: 'Total: —' });
-
-    function paint(values = []) {
-      row.innerHTML = '';
-      for (let i = 0; i < count; i++) {
-        const d = el('div', { class: 'dice' });
-        d.append(diceFace(values[i] || 1));
-        row.append(d);
-      }
-      if (values.length) total.textContent = `Total: ${values.reduce((a, b) => a + b, 0)}`;
-    }
-
-    const roll = async () => {
-      const dice = Array.from(row.children);
-      dice.forEach((d) => d.classList.add('roll'));
-      for (let i = 0; i < 9; i++) {
-        dice.forEach((d) => d.replaceChildren(diceFace(1 + ((Math.random() * 6) | 0))));
-        beep({ freq: 320 + i * 40, dur: 0.04, gain: 0.04 });
-        await new Promise((r) => setTimeout(r, 70));
-      }
-      const values = Array.from({ length: count }, () => 1 + ((Math.random() * 6) | 0));
-      dice.forEach((d, i) => { d.classList.remove('roll'); d.replaceChildren(diceFace(values[i])); });
-      total.textContent = `Total: ${values.reduce((a, b) => a + b, 0)}`;
-    };
-
-    paint();
-    return el('div', { class: 'ct-center' },
-      el('div', { style: { fontSize: '11px', letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-3)' }, text: 'Dice roller' }),
-      row,
-      total,
-      el('button', { class: 'btn primary', html: `${icon('dice')}<span>Roll</span>`, onclick: roll }),
-      el('div', { class: 'pill-group' },
-        [1, 2, 3].map((n) => el('button', { class: 'tool-btn', text: `${n} dice`, onclick: () => { count = n; paint(); } }))
-      )
-    );
-  }
 
   renderPanel();
 

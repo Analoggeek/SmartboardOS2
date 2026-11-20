@@ -56,18 +56,6 @@
       ]
     },
     {
-      "name": "Present a PDF",
-      "short_name": "PDF",
-      "description": "Open a PDF and present it",
-      "url": "./?app=pdf",
-      "icons": [
-        {
-          "src": "./assets/icons/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
       "name": "Class Tools",
       "short_name": "Tools",
       "description": "Picker, timer, scoreboard",
@@ -84,18 +72,6 @@
       "short_name": "Atlas",
       "description": "Explore offline geography maps",
       "url": "./?app=maps",
-      "icons": [
-        {
-          "src": "./assets/icons/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
-      "name": "Smart Lab",
-      "short_name": "Smart Lab",
-      "description": "Browse science diagrams",
-      "url": "./?app=lab",
       "icons": [
         {
           "src": "./assets/icons/icon-192.png",
