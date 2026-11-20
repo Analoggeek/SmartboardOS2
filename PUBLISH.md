@@ -35,4 +35,4 @@ Find the `.exe` or `.dmg` under `dist/`. A local build does not publish to GitHu
 
 ## Optional web deployment
 
-The web edition is still a static site. Serve `index.html`, `css/`, `js/`, `assets/`, `vendor/`, `manifest.webmanifest`, and `sw.js` together over HTTPS (or localhost for testing). Bump the cache version in `sw.js` whenever publishing changed web assets. Existing web tabs keep their current version until closed; then the verified cache activates.
+The **Deploy SmartBoardOS web app** workflow publishes renderer changes to [GitHub Pages](https://analoggeek.github.io/SmartboardOS2/) when they land on `main`. For forks, enable Pages with **GitHub Actions** as the source. The web edition is still a static site; for another host, serve `index.html`, `css/`, `js/`, `assets/`, `vendor/`, `manifest.webmanifest`, and `sw.js` together over HTTPS (or localhost for testing). Bump the cache version in `sw.js` whenever publishing changed web assets. Existing web tabs keep their current version until closed; then the verified cache activates.
