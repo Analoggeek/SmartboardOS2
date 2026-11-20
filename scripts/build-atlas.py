@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the offline atlas using Natural Earth GeoJSON from the pinned source.
 Run `python3 scripts/build-atlas.py /path/to/input` after fetching the six datasets below.
+For the India detail pack pass --india-only and provide the two 1:10m files named below.
 Data: public domain. Classroom maps are not official boundary definitions.
 """
 import json
@@ -19,8 +20,8 @@ def main(directory):
         path = full if full.exists() else directory / f'{key}.json'
         return json.loads(path.read_text())['features']
 
-    def output(name, data):
-        (ROOT / 'js' / f'map-{name}.js').write_text(f'/* Natural Earth 1:50m (public domain): {SOURCE} */\nexport default ' +
+    def output(name, data, scale='1:50m'):
+        (ROOT / 'js' / f'map-{name}.js').write_text(f'/* Natural Earth {scale} (public domain): {SOURCE} */\nexport default ' +
                                                   json.dumps(data, ensure_ascii=False, separators=(',', ':')) + ';\n')
 
     def line(points, tolerance=.018):
@@ -47,6 +48,24 @@ def main(directory):
 
     def title(p):
         return p.get('NAME_EN') or p.get('name_en') or p.get('name') or p.get('NAME') or ''
+
+    if '--india-only' in sys.argv:
+        # The dedicated admin-0 India worldview layer, not a boundary drawn by hand.
+        countries = json.loads((directory / 'ne_10m_admin_0_countries_ind.geojson').read_text())['features']
+        india = next(f for f in countries if f['properties']['ADM0_A3'] == 'IND')
+        features = json.loads((directory / 'ne_10m_rivers_lake_centerlines.geojson').read_text())['features']
+        rivers = []
+        names = {"Godävari": "Godavari", "Mahäna Nadï": "Mahanadi", "Ghäghara": "Ghaghara"}
+        for f in features:
+            p = f['properties']
+            if not f['geometry'] or p['featurecla'] != 'River' or not title(p):
+                continue
+            parts = lines(f['geometry'])
+            visible = [part for part in parts if any(65 <= x <= 100 and 5 <= y <= 38 for x, y in part)]
+            if visible:
+                rivers.append([names.get(title(p), title(p)), p['scalerank'], visible])
+        output('india', {'outline': polys(india['geometry'], .013), 'rivers': rivers}, '1:10m')
+        return
 
     output('data', [[title(p), p['CONTINENT'], polys(f['geometry']), p['ADM0_A3']]
                      for f in layer('countries') if f['geometry'] for p in [f['properties']]])
